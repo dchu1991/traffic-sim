@@ -20,9 +20,14 @@ _SPEED_HIGH = ( 50, 200, 100)   # ≥ 120 km/h (33 m/s)
 
 # ── Layout constants ────────────────────────────────────────────────────────
 LANE_HEIGHT = 52   # px per lane
-CAR_HEIGHT  = 36   # px
 MARGIN      = 55   # px left/right/top border
 HUD_HEIGHT  = 120  # px below road
+
+# Car visual sizes: cw (along road) > ch (across road), front bumper = right edge of rect
+CAR_W   = 16   # px along road  — regular car
+CAR_H   = 10   # px across road — regular car
+TRUCK_W = 26   # px along road  — truck
+TRUCK_H = 14   # px across road — truck
 
 
 def _speed_color(v_ms: float, v_max: float = 33.0) -> tuple[int, int, int]:
@@ -120,19 +125,20 @@ class Visualizer:
         for car in self.sim.cars:
             cx = self._px(car.position)
             cy = self._lane_cy(car.lane)
-            cw = max(12, int(car.length * self.scale))
-            ch = CAR_HEIGHT
+            is_truck = car.length > 8.0
+            cw = TRUCK_W if is_truck else CAR_W   # long axis — along road
+            ch = TRUCK_H if is_truck else CAR_H   # short axis — across road
 
             color = _speed_color(car.velocity)
-            rect = pygame.Rect(cx - cw // 2, cy - ch // 2, cw, ch)
-            pygame.draw.rect(self.screen, color, rect, border_radius=4)
-            pygame.draw.rect(self.screen, (15, 15, 15), rect, 1, border_radius=4)
+            # cx is the front bumper — rect extends cw px behind it
+            rect = pygame.Rect(cx - cw, cy - ch // 2, cw, ch)
+            pygame.draw.rect(self.screen, color, rect, border_radius=3)
+            pygame.draw.rect(self.screen, (15, 15, 15), rect, 1, border_radius=3)
 
-            # Speed label if wide enough
-            if cw >= 22:
-                lbl = self.font_sm.render(f"{car.velocity * 3.6:.0f}", True, (10, 10, 10))
-                self.screen.blit(lbl, (cx - lbl.get_width() // 2,
-                                       cy - lbl.get_height() // 2))
+            # Speed label centred on the rect
+            lbl = self.font_sm.render(f"{car.velocity * 3.6:.0f}", True, (10, 10, 10))
+            self.screen.blit(lbl, (cx - cw // 2 - lbl.get_width() // 2,
+                                   cy - lbl.get_height() // 2))
 
     def _draw_hud(self) -> None:
         hud_y = self.ry + self.rh + 14
@@ -141,7 +147,7 @@ class Visualizer:
         lines = [
             f"Time: {self.sim.time:7.1f}s  |  Speed: {self.speed_mult:.2f}x  |  {status}",
             f"Cars: {self.sim.car_count:3d}      |  Avg speed: {self.sim.avg_speed_kmh:5.1f} km/h",
-            f"Controls:  [SPACE] pause   [↑/↓] sim speed   [Q] quit",
+            "Controls:  [SPACE] pause   [↑/↓] sim speed   [Q] quit",
         ]
         for i, line in enumerate(lines):
             surf = self.font.render(line, True, HUD_COLOR)
