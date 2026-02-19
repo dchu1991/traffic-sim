@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pygame
 
+from .recorder import Recorder
 from .simulation import Simulation
 
 # ── Colours ────────────────────────────────────────────────────────────────
@@ -46,11 +47,13 @@ def _speed_color(v_ms: float, v_max: float = 33.0) -> tuple[int, int, int]:
 
 
 class Visualizer:
-    def __init__(self, sim: Simulation, width: int = 1400, fps: int = 60):
+    def __init__(self, sim: Simulation, recorder: Recorder | None = None,
+                 width: int = 1400, fps: int = 60):
         pygame.init()
         pygame.font.init()
 
         self.sim      = sim
+        self.recorder = recorder
         self.fps      = fps
         self.running  = True
         self.paused   = False
@@ -79,7 +82,7 @@ class Visualizer:
     def _px(self, position: float) -> int:
         return self.rx + int(position * self.scale)
 
-    def _lane_cy(self, lane: int) -> int:
+    def _lane_cy(self, lane: float) -> int:
         return self.ry + int((lane + 0.5) * LANE_HEIGHT)
 
     # ── Drawing ────────────────────────────────────────────────────────────
@@ -124,7 +127,7 @@ class Visualizer:
     def _draw_cars(self) -> None:
         for car in self.sim.cars:
             cx = self._px(car.position)
-            cy = self._lane_cy(car.lane)
+            cy = self._lane_cy(self.sim.get_visual_lane(car))
             is_truck = car.length > 8.0
             cw = TRUCK_W if is_truck else CAR_W   # long axis — along road
             ch = TRUCK_H if is_truck else CAR_H   # short axis — across road
@@ -205,6 +208,8 @@ class Visualizer:
                 dt_sub = min(dt_sim / substeps, 0.05)
                 for _ in range(substeps):
                     self.sim.step(dt_sub)
+                if self.recorder:
+                    self.recorder.sample(self.sim)
 
             self.screen.fill(BG_COLOR)
             self._draw_road()
@@ -213,4 +218,10 @@ class Visualizer:
             self._draw_hud()
             pygame.display.flip()
 
+        if self.recorder:
+            paths = self.recorder.save()
+            if paths:
+                print(f"Recorded {self.recorder.sample_count} samples.")
+                for p in paths:
+                    print(f"  → {p}")
         pygame.quit()

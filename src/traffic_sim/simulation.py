@@ -9,9 +9,10 @@ from .car import Car
 from .road import LARGE_GAP, Ramp, Road
 
 # Lane-change thresholds
-LANE_CHANGE_COOLDOWN = 3.0   # s — minimum time between lane changes
+LANE_CHANGE_COOLDOWN  = 3.0  # s — minimum time between lane changes
 LANE_CHANGE_INCENTIVE = 8.0  # m — gap_ahead must improve by this much to bother
-SAFETY_GAP = 6.0             # m — minimum gap behind in target lane
+SAFETY_GAP            = 6.0  # m — minimum gap behind in target lane
+LANE_CHANGE_DURATION  = 1.2  # s — visual transition time (purely cosmetic)
 
 # On-ramp spawning
 ONRAMP_MIN_GAP = 20.0        # m — minimum gap needed to merge onto road
@@ -69,6 +70,9 @@ class Simulation:
             Ramp(position=road_length * 0.80, lane=rightmost, is_onramp=False, rate=0.30),
         ]
 
+        # car_id → (from_lane, progress)  where progress runs 0 → 1
+        self._lane_transitions: dict[int, tuple[int, float]] = {}
+
         self._spawn_initial_cars(num_cars, truck_fraction)
 
     # ------------------------------------------------------------------
@@ -113,11 +117,14 @@ class Simulation:
 
             # Incentive: must gain meaningfully
             if gap_ahead > current_gap + LANE_CHANGE_INCENTIVE:
+                prev_lane = car.lane
                 self.road.lanes[car.lane].remove(car)
                 car.lane = target_lane
                 car.lane_change_timer = LANE_CHANGE_COOLDOWN
-                car.exiting = False  # reset — will re-evaluate off-ramp commitment
+                car.exiting = False
                 self.road.lanes[target_lane].append(car)
+                # Start visual transition from prev_lane → car.lane
+                self._lane_transitions[car.car_id] = (prev_lane, 0.0)
                 return
 
     # ------------------------------------------------------------------
@@ -187,6 +194,7 @@ class Simulation:
                         break
 
         for car in to_remove:
+            self._lane_transitions.pop(car.car_id, None)
             self.road.remove_car(car)
             self.cars.remove(car)
 
@@ -195,7 +203,29 @@ class Simulation:
             if ramp.is_onramp:
                 self._process_onramp(ramp, dt)
 
+        # 5. Advance visual lane-change transitions
+        for cid in list(self._lane_transitions):
+            from_lane, progress = self._lane_transitions[cid]
+            progress += dt / LANE_CHANGE_DURATION
+            if progress >= 1.0:
+                del self._lane_transitions[cid]
+            else:
+                self._lane_transitions[cid] = (from_lane, progress)
+
         self.time += dt
+
+    # ------------------------------------------------------------------
+    # Visual helpers
+    # ------------------------------------------------------------------
+
+    def get_visual_lane(self, car: Car) -> float:
+        """Return the car's interpolated (float) lane position for rendering."""
+        if car.car_id not in self._lane_transitions:
+            return float(car.lane)
+        from_lane, progress = self._lane_transitions[car.car_id]
+        # Smoothstep easing: 3t² − 2t³
+        t = progress * progress * (3.0 - 2.0 * progress)
+        return from_lane + (car.lane - from_lane) * t
 
     # ------------------------------------------------------------------
     # Statistics
