@@ -1,0 +1,17 @@
+[project]
+name = "traffic-sim"
+version = "0.1.0"
+description = "Freeway traffic simulator with multi-lane IDM model"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pygame>=2.5.0",
+    "numpy>=1.24.0",
+]
+
+[project.scripts]
+traffic-sim = "traffic_sim.main:main"
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
