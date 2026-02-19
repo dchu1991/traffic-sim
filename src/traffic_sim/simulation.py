@@ -161,6 +161,8 @@ class Simulation:
 
     def _process_onramp(self, ramp: Ramp, dt: float) -> None:
         """Attempt to spawn a car from the on-ramp."""
+        if ramp.rate <= 0:
+            return
         ramp._timer += dt
         interval = 1.0 / ramp.rate
         if ramp._timer < interval:
