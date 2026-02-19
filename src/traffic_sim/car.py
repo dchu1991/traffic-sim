@@ -28,10 +28,14 @@ class Car:
     exiting: bool = False           # set when car is committed to an off-ramp
     _passed_ramps: set = field(default_factory=set)
 
-    def idm_acceleration(self, gap: float, lead_velocity: float) -> float:
-        """Intelligent Driver Model — returns acceleration given gap to leader."""
+    def idm_acceleration(self, gap: float, lead_velocity: float,
+                         effective_v0: float | None = None) -> float:
+        """Intelligent Driver Model — returns acceleration given gap to leader.
+
+        Pass effective_v0 to override desired_velocity (e.g. to enforce a speed limit).
+        """
         v = self.velocity
-        v0 = self.desired_velocity
+        v0 = effective_v0 if effective_v0 is not None else self.desired_velocity
         delta_v = v - lead_velocity
 
         # Desired minimum gap
@@ -48,8 +52,10 @@ class Car:
         )
         return float(np.clip(accel, -9.0, self.max_accel))
 
-    def update(self, dt: float, gap: float, lead_velocity: float, road_length: float) -> None:
-        self.acceleration = self.idm_acceleration(gap, lead_velocity)
+    def update(self, dt: float, gap: float, lead_velocity: float,
+               road_length: float, speed_limit: float = float('inf')) -> None:
+        effective_v0 = min(self.desired_velocity, speed_limit)
+        self.acceleration = self.idm_acceleration(gap, lead_velocity, effective_v0)
         self.velocity = max(0.0, self.velocity + self.acceleration * dt)
         self.position = (self.position + self.velocity * dt) % road_length
         if self.lane_change_timer > 0.0:

@@ -21,11 +21,18 @@ class Ramp:
 
 
 class Road:
-    def __init__(self, length: float = 1000.0, num_lanes: int = 3):
+    def __init__(self, length: float = 1000.0, num_lanes: int = 3,
+                 lane_speed_limits: list[float] | None = None):
         self.length = length
         self.num_lanes = num_lanes
         self.lanes: list[list[Car]] = [[] for _ in range(num_lanes)]
         self.ramps: list[Ramp] = []
+        # Speed limits in m/s, index 0 = leftmost (fast) lane.
+        # Caller is responsible for supplying the right length; defaults to no limit.
+        self.lane_speed_limits: list[float] = (
+            lane_speed_limits if lane_speed_limits is not None
+            else [float('inf')] * num_lanes
+        )
 
     # ------------------------------------------------------------------
     # Car management

@@ -1,0 +1,44 @@
+# Traffic Simulator — Behaviour Configuration
+# Edit this file to tune driving behaviour without touching any Python code.
+# Run: uv run traffic-sim  (reads config.toml automatically)
+# Custom file: uv run traffic-sim --config my_config.toml
+
+[road]
+# Speed limits in km/h, left (fast lane) → right (slow lane).
+# Length of this list should match --lanes; extra entries are ignored,
+# missing ones repeat the last value minus the step.
+lane_speed_limits_kmh = [130, 110, 90]
+
+[lane_change]
+cooldown_s       = 3.0   # minimum seconds between lane changes per car
+incentive_m      = 8.0   # gap improvement (m) required to move LEFT (overtake)
+safety_gap_m     = 6.0   # minimum gap (m) behind in target lane
+keep_right_gap_m = 25.0  # gap (m) needed to merge RIGHT without incentive; 0 = disabled
+duration_s       = 1.2   # visual lane-change animation duration (seconds, cosmetic only)
+
+[ramp]
+# Positions are fractions of road length (0.0 = start, 1.0 = end)
+onramp_position  = 0.10
+offramp_position = 0.80
+onramp_rate      = 0.5   # new cars spawned per second at the on-ramp
+offramp_prob     = 0.30  # probability that a car takes the off-ramp when passing it
+min_gap_m        = 20.0  # minimum gap (m) required to merge from the on-ramp
+
+[cars]
+desired_v_mean_ms      = 33.0  # m/s — mean desired speed (~120 km/h)
+desired_v_std_ms       =  4.0
+desired_v_min_ms       = 22.0
+desired_v_max_ms       = 44.0
+time_headway_mean      =  1.5  # s — mean time gap to leader
+time_headway_std       =  0.3
+min_gap_mean_m         =  2.0  # m — mean standstill gap
+max_accel_mean         =  1.5  # m/s² — mean max acceleration
+comfortable_decel_mean =  2.0  # m/s² — mean comfortable braking
+
+[trucks]
+desired_v_mean_ms = 22.0  # m/s (~80 km/h)
+desired_v_std_ms  =  2.0
+desired_v_min_ms  = 15.0
+desired_v_max_ms  = 27.0
+length_min_m      = 10.0  # m — truck length range
+length_max_m      = 16.0

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import os
 
+from .config import SimConfig
 from .recorder import Recorder
 from .simulation import Simulation
 from .visualizer import Visualizer
+
+_DEFAULT_CONFIG = "config.toml"
 
 
 def main() -> None:
@@ -17,16 +21,26 @@ def main() -> None:
     parser.add_argument("--fps",             type=int,   default=60,     help="Target FPS (default: 60)")
     parser.add_argument("--width",           type=int,   default=1400,   help="Window width in pixels (default: 1400)")
     parser.add_argument("--trucks",          type=float, default=0.15,   help="Fraction of cars that are trucks (default: 0.15)")
-    parser.add_argument("--record",          action="store_true",        help="Record aggregate stats to CSV on exit")
+    parser.add_argument("--config",          type=str,   default=None,   help=f"Path to behaviour config TOML (default: {_DEFAULT_CONFIG} if present)")
+    parser.add_argument("--record",          action="store_true",        help="Record aggregate stats to Parquet on exit")
     parser.add_argument("--record-cars",     action="store_true",        help="Also record per-car trajectories (larger file)")
     parser.add_argument("--record-interval", type=float, default=1.0,   help="Sample interval in sim-seconds (default: 1.0)")
     args = parser.parse_args()
+
+    # Load config: explicit --config > default config.toml > built-in defaults
+    config_path = args.config or (_DEFAULT_CONFIG if os.path.exists(_DEFAULT_CONFIG) else None)
+    if config_path:
+        cfg = SimConfig.from_toml(config_path)
+        print(f"Loaded config: {config_path}")
+    else:
+        cfg = SimConfig()
 
     sim = Simulation(
         road_length=args.length,
         num_lanes=args.lanes,
         num_cars=args.cars,
         truck_fraction=args.trucks,
+        config=cfg,
     )
 
     recorder = None

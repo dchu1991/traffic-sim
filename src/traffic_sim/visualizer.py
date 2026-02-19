@@ -24,7 +24,7 @@ _SPEED_HIGH = ( 50, 200, 100)   # ≥ 120 km/h (33 m/s)
 # ── Layout constants ────────────────────────────────────────────────────────
 LANE_HEIGHT = 52   # px per lane
 MARGIN      = 55   # px left/right/top border
-HUD_HEIGHT  = 120  # px below road
+HUD_HEIGHT  = 140  # px below road
 
 # Car visual sizes: cw (along road) > ch (across road), front bumper = right edge of rect
 CAR_W   = 16   # px along road  — regular car
@@ -149,9 +149,15 @@ class Visualizer:
         hud_y = self.ry + self.rh + 14
         status = "PAUSED" if self.paused else "RUNNING"
 
+        limits_str = "  |  ".join(
+            f"L{i + 1} {lim * 3.6:.0f} km/h"
+            for i, lim in enumerate(self.sim.road.lane_speed_limits)
+        )
+
         lines = [
             f"Time: {self.sim.time:7.1f}s  |  Speed: {self.speed_mult:.2f}x  |  {status}",
             f"Cars: {self.sim.car_count:3d}      |  Avg speed: {self.sim.avg_speed_kmh:5.1f} km/h",
+            f"Limits (L\u2192R):  {limits_str}",
             "Controls:  [SPACE] pause   [↑/↓] sim speed   [Q] quit",
         ]
         for i, line in enumerate(lines):
@@ -159,7 +165,7 @@ class Visualizer:
             self.screen.blit(surf, (self.rx, hud_y + i * 22))
 
         # Density bar
-        self._draw_density_bar(hud_y + 72)
+        self._draw_density_bar(hud_y + 94)
 
     def _draw_density_bar(self, y: int) -> None:
         num_bins = 40
