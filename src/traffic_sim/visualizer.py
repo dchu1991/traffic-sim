@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pygame
 
 from .recorder import Recorder
@@ -219,7 +221,8 @@ class Visualizer:
             pygame.display.flip()
 
         if self.recorder:
-            paths = self.recorder.save()
+            os.makedirs("logs", exist_ok=True)
+            paths = self.recorder.save("logs")
             if paths:
                 print(f"Recorded {self.recorder.sample_count} samples.")
                 for p in paths:

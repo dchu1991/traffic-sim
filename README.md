@@ -64,18 +64,20 @@ Car colour encodes speed: 🔴 stopped → 🟡 medium → 🟢 highway speed.
 
 ## Data analysis
 
-When `--record` is passed, two Parquet files are written on exit:
+When `--record` is passed, two Parquet files are written to `logs/` on exit:
 
 | File | Columns |
 |------|---------|
-| `traffic_aggregate_<ts>.parquet` | `time_s`, `car_count`, `avg_speed_kmh`, `density_veh_per_km`, `flow_veh_per_h` |
-| `traffic_cars_<ts>.parquet` | `time_s`, `car_id`, `lane`, `position_m`, `speed_kmh`, `accel_ms2` |
+| `logs/traffic_aggregate_<ts>.parquet` | `time_s`, `car_count`, `avg_speed_kmh`, `density_veh_per_km`, `flow_veh_per_h` |
+| `logs/traffic_cars_<ts>.parquet` | `time_s`, `car_id`, `lane`, `position_m`, `speed_kmh`, `accel_ms2` |
+
+The `logs/` directory is git-ignored.
 
 ```python
 import polars as pl
 
-agg  = pl.read_parquet("traffic_aggregate_*.parquet")
-cars = pl.read_parquet("traffic_cars_*.parquet")
+agg  = pl.read_parquet("logs/traffic_aggregate_*.parquet")
+cars = pl.read_parquet("logs/traffic_cars_*.parquet")
 
 # Fundamental diagram (speed vs density)
 agg.select(["density_veh_per_km", "avg_speed_kmh", "flow_veh_per_h"])
