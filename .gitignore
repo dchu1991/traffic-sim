@@ -19,3 +19,6 @@ Thumbs.db
 
 # Recorded simulation data
 logs/
+
+# Jupyter notebooks (local analysis, not committed)
+notebook/
