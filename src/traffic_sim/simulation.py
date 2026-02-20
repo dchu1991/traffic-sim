@@ -194,9 +194,11 @@ class Simulation:
 
     def _step_ramp_queues(self, dt: float) -> None:
         """Advance IDM physics for all on-ramp queue cars; merge lead car when gap allows."""
-        ramp_length = self.cfg.ramp.ramp_length_m
-        min_gap = self.cfg.ramp.min_gap_m
-        merge_window = min(self.cfg.ramp.merge_window_m, ramp_length)
+        ramp_length   = self.cfg.ramp.ramp_length_m
+        min_gap       = self.cfg.ramp.min_gap_m
+        merge_window  = min(self.cfg.ramp.merge_window_m, ramp_length)
+        zipper_speed  = self.cfg.ramp.zipper_speed_kmh / 3.6
+        zipper_gap    = self.cfg.ramp.zipper_gap_m
 
         for ramp in self.road.ramps:
             if not ramp.is_onramp or not ramp.queue:
@@ -241,12 +243,27 @@ class Simulation:
             entry_pos = ramp.position - (ramp_length - lead.position)
 
             lane_cars = self.road.sorted_lane(ramp.lane)  # refresh after position updates
+
+            # Zipper merge: lower gap requirement when rightmost lane is crawling
+            nearby = [c for c in lane_cars
+                      if 0 < (ramp.position - c.position) % self.road.length <= merge_window]
+            avg_speed = sum(c.velocity for c in nearby) / len(nearby) if nearby else float('inf')
+            effective_min_gap = zipper_gap if avg_speed < zipper_speed else min_gap
+
             ahead  = [c for c in lane_cars if c.position > entry_pos]
             behind = [c for c in lane_cars if c.position <= entry_pos]
             gap_ahead  = (ahead[0].position - entry_pos - ahead[0].length) if ahead else LARGE_GAP
             gap_behind = (entry_pos - behind[-1].position - lead.length) if behind else LARGE_GAP
 
-            if gap_ahead >= min_gap and gap_behind >= min_gap * 0.5:
+            # In zipper mode (slow traffic) only gap_ahead matters — cars are nearly
+            # stopped so the one behind can react within a tick via IDM.
+            # In normal mode also require a safe gap behind.
+            zipper_active = avg_speed < zipper_speed
+            if zipper_active:
+                can_merge = gap_ahead >= effective_min_gap
+            else:
+                can_merge = gap_ahead >= effective_min_gap and gap_behind >= effective_min_gap * 0.5
+            if can_merge:
                 lead.position = entry_pos  # enter road at mapped position
                 lead.lane = ramp.lane
                 ramp.queue.pop(0)
@@ -281,8 +298,11 @@ class Simulation:
                     continue  # ramp car is still far back
                 if car.position < ramp.position:
                     ramp_gap = ramp.position - car.position - lead_q.length
-                    if ramp_gap < gap:
-                        gap = max(0.0, ramp_gap)
+                    # Only yield when there is actual space to give; if ramp_gap <= 0
+                    # the car is already inside the ramp car's body — let it pass through
+                    # rather than holding it frozen in place (which creates a deadlock).
+                    if 0 < ramp_gap < gap:
+                        gap = ramp_gap
                         lead_v = lead_q.velocity
             limit = self.road.lane_speed_limits[car.lane]
             car.update(dt, gap, lead_v, self.road.length, speed_limit=limit)

@@ -13,8 +13,10 @@ ROAD_COLOR      = (55,  57,  65)
 EDGE_COLOR      = (230, 230, 230)
 LANE_MARK_COLOR = (200, 190, 100)
 HUD_COLOR       = (210, 215, 225)
-RAMP_ON_COLOR   = (80,  200,  80)
-RAMP_OFF_COLOR  = (200,  80,  80)
+RAMP_ON_COLOR      = (80,  200,  80)
+RAMP_OFF_COLOR     = (200,  80,  80)
+MERGE_ZONE_COLOR   = (60,   90,  60)   # tinted bg for merge window
+MERGE_ZONE_DASH    = (100, 180, 100)   # dashed line colour in merge zone
 
 # Speed gradient: red → yellow → green  (in m/s)
 _SPEED_LOW  = (220,  50,  50)   # 0 km/h
@@ -31,6 +33,28 @@ CAR_W   = 16   # px along road  — regular car
 CAR_H   = 10   # px across road — regular car
 TRUCK_W = 26   # px along road  — truck
 TRUCK_H = 14   # px across road — truck
+
+
+def _draw_dashed_line(
+    surface: pygame.Surface,
+    color: tuple[int, int, int],
+    start: tuple[float, float],
+    end: tuple[float, float],
+    dash: int = 8,
+    gap: int = 5,
+    width: int = 1,
+) -> None:
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    length = (dx * dx + dy * dy) ** 0.5
+    if length == 0:
+        return
+    step = dash + gap
+    for i in range(int(length / step) + 1):
+        t0 = min(i * step / length, 1.0)
+        t1 = min((i * step + dash) / length, 1.0)
+        p0 = (start[0] + t0 * dx, start[1] + t0 * dy)
+        p1 = (start[0] + t1 * dx, start[1] + t1 * dy)
+        pygame.draw.line(surface, color, p0, p1, width)
 
 
 def _speed_color(v_ms: float, v_max: float = 33.0) -> tuple[int, int, int]:
@@ -147,6 +171,23 @@ class Visualizer:
             # Ramp lane background
             pygame.draw.rect(self.screen, ROAD_COLOR,
                              (ramp_x - ramp_length_px, lane_top, ramp_length_px, LANE_HEIGHT))
+
+            # Merge window: tinted background + dashed boundary lines
+            merge_window_px = int(self.sim.cfg.ramp.merge_window_m * self.scale)
+            zone_left = max(ramp_x - merge_window_px, ramp_x - ramp_length_px)
+            zone_width = ramp_x - zone_left
+            if zone_width > 0:
+                pygame.draw.rect(self.screen, MERGE_ZONE_COLOR,
+                                 (zone_left, lane_top, zone_width, LANE_HEIGHT))
+                # Dashed top edge (road ↔ ramp boundary)
+                _draw_dashed_line(self.screen, MERGE_ZONE_DASH,
+                                  (zone_left, lane_top), (ramp_x, lane_top),
+                                  dash=10, gap=6, width=2)
+                # Dashed vertical start-of-zone marker
+                _draw_dashed_line(self.screen, MERGE_ZONE_DASH,
+                                  (zone_left, lane_top), (zone_left, lane_top + LANE_HEIGHT),
+                                  dash=6, gap=4, width=1)
+
             # Bottom edge
             pygame.draw.line(self.screen, EDGE_COLOR,
                              (ramp_x - ramp_length_px, lane_top + LANE_HEIGHT),

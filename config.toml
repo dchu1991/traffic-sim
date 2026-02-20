@@ -24,6 +24,8 @@ onramp_rate      = 0.5   # new cars spawned per second at the on-ramp (0 = disab
 offramp_prob     = 0.3   # probability that a car takes the off-ramp when passing it (0 = disabled)
 min_gap_m        = 30.0  # safety gap (m) required in front and behind to merge
 merge_window_m   = 100.0 # how far back from the tip a car may attempt to merge (m)
+zipper_speed_kmh =  30.0 # km/h — rightmost lane speed below which zipper merge activates
+zipper_gap_m     =   8.0 # m — gap required in zipper mode (~1 car length + buffer)
 max_queue        = 10    # max cars waiting on ramp (0 = no limit)
 ramp_length_m    = 200.0 # physical ramp length in metres (sets visual size)
 

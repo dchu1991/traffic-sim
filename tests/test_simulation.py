@@ -238,6 +238,60 @@ class TestStepRampQueues:
             assert lead.position < ramp.position
             assert lead.position >= ramp.position - cfg.ramp.ramp_length_m
 
+    def test_zipper_merge_used_when_lane_is_slow(self):
+        """When rightmost lane is crawling, zipper_gap_m replaces min_gap_m."""
+        cfg = SimConfig()
+        cfg.ramp.min_gap_m = 30.0
+        cfg.ramp.zipper_speed_kmh = 40.0   # 40 km/h threshold
+        cfg.ramp.zipper_gap_m = 8.0
+        cfg.ramp.ramp_length_m = 200.0
+        sim = make_sim(cfg=cfg)
+        ramp = sim.road.ramps[0]
+
+        # Blocker 12 m ahead: gap = 12 - 8(car length) = 4 m < min_gap(30) but > zipper_gap(8)/2
+        # Actually let's make gap = 10 m: ahead at 110, length 5 → gap = 110-100-5 = 5 m
+        # 5 < 30 (min_gap) but >= 8 (zipper_gap) at half-requirement for behind
+        # Use gap_ahead=10 m >= zipper_gap(8), gap_behind=LARGE_GAP >= zipper_gap*0.5
+        blocker = make_car(car_id=1, lane=2, position=115.0, velocity=5.0, length=5.0)
+        sim.cars.append(blocker)
+        sim.road.add_car(blocker)
+
+        # Slow car within merge window: average speed = 5 m/s = 18 km/h < 40 km/h threshold
+        slow = make_car(car_id=2, lane=2, position=80.0, velocity=5.0)
+        sim.cars.append(slow)
+        sim.road.add_car(slow)
+
+        lead = make_car(car_id=999, lane=2, position=199.9, velocity=0.0)
+        ramp.queue.append(lead)
+
+        sim._step_ramp_queues(dt=0.05)
+
+        # With zipper_gap=8 and gap_ahead=10, merge should succeed
+        assert lead in sim.cars
+
+    def test_normal_gap_used_when_lane_is_fast(self):
+        """When rightmost lane is fast, min_gap_m is required (zipper mode off)."""
+        cfg = SimConfig()
+        cfg.ramp.min_gap_m = 30.0
+        cfg.ramp.zipper_speed_kmh = 10.0   # low threshold — lane at 25 m/s won't trigger
+        cfg.ramp.zipper_gap_m = 8.0
+        cfg.ramp.ramp_length_m = 200.0
+        sim = make_sim(cfg=cfg)
+        ramp = sim.road.ramps[0]
+
+        # Blocker 15 m ahead: gap_ahead = 10 m < min_gap(30) but > zipper_gap(8)
+        blocker = make_car(car_id=1, lane=2, position=115.0, velocity=25.0, length=5.0)
+        sim.cars.append(blocker)
+        sim.road.add_car(blocker)
+
+        lead = make_car(car_id=999, lane=2, position=199.9, velocity=0.0)
+        ramp.queue.append(lead)
+
+        sim._step_ramp_queues(dt=0.05)
+
+        # Lane is fast (25 m/s >> 10 km/h threshold), so min_gap(30) applies → no merge
+        assert lead not in sim.cars
+
 
 # ── Lane changes ──────────────────────────────────────────────────────────────
 

@@ -21,6 +21,8 @@ class RampConfig:
     offramp_prob: float = 0.30      # probability a passing car exits
     min_gap_m: float = 30.0         # safety gap (m) required in front and behind to merge
     merge_window_m: float = 100.0   # how far back from the tip a car may attempt to merge
+    zipper_speed_kmh: float = 30.0  # activate zipper mode when rightmost lane avg speed < this
+    zipper_gap_m: float = 8.0       # gap required in zipper mode (~1 car length + buffer)
     max_queue: int = 10             # max cars waiting on ramp (0 = no limit)
     ramp_length_m: float = 200.0    # physical ramp length in metres
 
