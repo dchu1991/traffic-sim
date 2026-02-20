@@ -140,10 +140,23 @@ class Simulation:
                     self._do_lane_change(car, target_lane)
                     return
             else:
-                # Moving RIGHT — keep-right: just need enough free space
+                # Moving RIGHT — keep-right: skip if inside a merge zone
+                if self._in_merge_zone(car, target_lane):
+                    continue
                 if self.keep_right_gap > 0 and gap_ahead >= self.keep_right_gap:
                     self._do_lane_change(car, target_lane)
                     return
+
+    def _in_merge_zone(self, car: Car, target_lane: int) -> bool:
+        """Return True if car is within ramp_length_m upstream of an on-ramp in target_lane."""
+        zone = self.cfg.ramp.ramp_length_m
+        for ramp in self.road.ramps:
+            if not ramp.is_onramp or ramp.lane != target_lane:
+                continue
+            dist_to_ramp = (ramp.position - car.position) % self.road.length
+            if dist_to_ramp <= zone:
+                return True
+        return False
 
     # ------------------------------------------------------------------
     # Ramp logic
