@@ -19,7 +19,8 @@ class RampConfig:
     offramp_position: float = 0.80
     onramp_rate: float = 0.5        # cars / second
     offramp_prob: float = 0.30      # probability a passing car exits
-    min_gap_m: float = 20.0         # gap needed to merge from on-ramp
+    min_gap_m: float = 30.0         # safety gap (m) required in front and behind to merge
+    merge_window_m: float = 100.0   # how far back from the tip a car may attempt to merge
     max_queue: int = 10             # max cars waiting on ramp (0 = no limit)
     ramp_length_m: float = 200.0    # physical ramp length in metres
 

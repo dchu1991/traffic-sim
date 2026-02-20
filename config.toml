@@ -22,7 +22,8 @@ onramp_position  = 0.10
 offramp_position = 0.80
 onramp_rate      = 0.5   # new cars spawned per second at the on-ramp (0 = disabled)
 offramp_prob     = 0.3   # probability that a car takes the off-ramp when passing it (0 = disabled)
-min_gap_m        = 20.0  # minimum gap (m) required to merge from the on-ramp
+min_gap_m        = 30.0  # safety gap (m) required in front and behind to merge
+merge_window_m   = 100.0 # how far back from the tip a car may attempt to merge (m)
 max_queue        = 10    # max cars waiting on ramp (0 = no limit)
 ramp_length_m    = 200.0 # physical ramp length in metres (sets visual size)
 

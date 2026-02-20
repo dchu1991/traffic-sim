@@ -196,6 +196,7 @@ class Simulation:
         """Advance IDM physics for all on-ramp queue cars; merge lead car when gap allows."""
         ramp_length = self.cfg.ramp.ramp_length_m
         min_gap = self.cfg.ramp.min_gap_m
+        merge_window = min(self.cfg.ramp.merge_window_m, ramp_length)
 
         for ramp in self.road.ramps:
             if not ramp.is_onramp or not ramp.queue:
@@ -229,9 +230,9 @@ class Simulation:
                 car.velocity = max(0.0, min(car.velocity + accel * dt, speed_limit))
                 car.position = min(car.position + car.velocity * dt, ramp_length)
 
-            # Merge check: lead car can merge anywhere in the last min_gap metres of the ramp
+            # Merge check: lead car can merge anywhere in the last merge_window metres of the ramp
             lead = ramp.queue[0]
-            if lead.position < ramp_length - min_gap:
+            if lead.position < ramp_length - merge_window:
                 continue
 
             # Map ramp position → road entry position
