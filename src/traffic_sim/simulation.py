@@ -229,23 +229,31 @@ class Simulation:
                 car.velocity = max(0.0, min(car.velocity + accel * dt, speed_limit))
                 car.position = min(car.position + car.velocity * dt, ramp_length)
 
-            # Merge check: lead car must be at the merge point and have a safe gap
+            # Merge check: lead car can merge anywhere in the last min_gap metres of the ramp
             lead = ramp.queue[0]
-            if lead.position < ramp_length - 0.5:
+            if lead.position < ramp_length - min_gap:
                 continue
 
+            # Map ramp position → road entry position
+            # At ramp_length the car is exactly at ramp.position; earlier positions
+            # are further upstream on the road.
+            entry_pos = ramp.position - (ramp_length - lead.position)
+
             lane_cars = self.road.sorted_lane(ramp.lane)  # refresh after position updates
-            ahead  = [c for c in lane_cars if c.position > ramp.position]
-            behind = [c for c in lane_cars if c.position <= ramp.position]
-            gap_ahead  = (ahead[0].position - ramp.position - ahead[0].length) if ahead else LARGE_GAP
-            gap_behind = (ramp.position - behind[-1].position - lead.length) if behind else LARGE_GAP
+            ahead  = [c for c in lane_cars if c.position > entry_pos]
+            behind = [c for c in lane_cars if c.position <= entry_pos]
+            gap_ahead  = (ahead[0].position - entry_pos - ahead[0].length) if ahead else LARGE_GAP
+            gap_behind = (entry_pos - behind[-1].position - lead.length) if behind else LARGE_GAP
 
             if gap_ahead >= min_gap and gap_behind >= min_gap * 0.5:
-                lead.position = ramp.position  # switch to road coordinates
+                lead.position = entry_pos  # enter road at mapped position
                 lead.lane = ramp.lane
                 ramp.queue.pop(0)
                 self.cars.append(lead)
                 self.road.add_car(lead)
+                # Animate merge: slide from ramp lane (visual index = num_lanes)
+                # into the rightmost road lane, reusing the same smoothstep system
+                self._lane_transitions[lead.car_id] = (self.road.num_lanes, 0.0)
 
     # ------------------------------------------------------------------
     # Main step

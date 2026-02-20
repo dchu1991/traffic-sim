@@ -220,19 +220,23 @@ class TestStepRampQueues:
         assert follow.velocity > 0.0   # was 0, should now be accelerating
 
     def test_merged_car_at_ramp_position(self):
-        """Merged car's position is reset to ramp.position (road coordinates)."""
+        """Merged car enters road upstream of ramp.position when not at the very tip."""
         cfg = SimConfig()
         cfg.ramp.min_gap_m = 5.0
         cfg.ramp.ramp_length_m = 200.0
         sim = make_sim(cfg=cfg)
         ramp = sim.road.ramps[0]
 
-        lead = make_car(car_id=999, lane=2, position=199.9, velocity=20.0)
+        # velocity=0 so IDM barely moves the car in one tick; position=197 is within
+        # the 5 m merge zone (200 - 5 = 195) but not at the very tip.
+        lead = make_car(car_id=999, lane=2, position=197.0, velocity=0.0)
         ramp.queue.append(lead)
         sim._step_ramp_queues(dt=0.05)
 
         if lead in sim.cars:  # merge succeeded
-            assert lead.position == pytest.approx(ramp.position)
+            # entry_pos maps ramp coords → road coords; car should enter before the tip
+            assert lead.position < ramp.position
+            assert lead.position >= ramp.position - cfg.ramp.ramp_length_m
 
 
 # ── Lane changes ──────────────────────────────────────────────────────────────
