@@ -56,8 +56,14 @@ src/traffic_sim/
 **Circular road** — positions are `% road_length`; `road.py:find_leader()` handles wraparound correctly
 
 **Ramps** — positions / rates from `config.toml [ramp]`:
-- On-ramp at 10% of road (rightmost lane), 0.5 cars/s; needs ≥ 20 m gap to merge
+- On-ramp at 10% of road (rightmost lane), 0.5 cars/s
 - Off-ramp at 80% of road (rightmost lane), 30% exit probability per crossing
+- On-ramp cars queue on a visible ramp lane below the road; IDM physics drives them forward
+- Merge params: `min_gap_m` (safety gap, default 30 m), `merge_window_m` (how far back merging can start, default 100 m)
+- **Zipper merge**: when rightmost lane avg speed < `zipper_speed_kmh` (30 km/h), only `zipper_gap_m` (8 m) gap ahead is required — gap behind is ignored since cars are near-stopped
+- Cooperative yield: road cars in rightmost lane treat the ramp lead car as a virtual obstacle when within 15 m of merge point; only applies when `ramp_gap > 0` (avoids deadlock)
+- Merge animation: ramp car slides from `_lane_cy(num_lanes)` → rightmost lane using same smoothstep system as lane changes
+- Merge window is highlighted in visualizer with a green tint + dashed top edge and start marker
 
 **Car rendering** — `visualizer.py:_draw_cars()`:
 - Front bumper = right edge of rect (`Rect(cx - cw, cy - ch//2, cw, ch)`)
@@ -78,6 +84,7 @@ src/traffic_sim/
 - **Keep-right aggressiveness**: `keep_right_gap_m` in `[lane_change]` (0 = disabled)
 - **Overtaking threshold**: `incentive_m` in `[lane_change]`
 - **Traffic density**: `--cars` or `onramp_rate` in `[ramp]`
+- **Merge aggressiveness**: `merge_window_m` (wider = earlier), `min_gap_m` (normal), `zipper_gap_m` (congested), `zipper_speed_kmh` (threshold)
 - **Driver aggression**: `desired_v_mean_ms`, `time_headway_mean` etc. in `[cars]`
 - Car colour encodes speed: red (0 km/h) → yellow (60 km/h) → green (120+ km/h)
 - Simulation substep count scales with `speed_mult` to keep IDM numerically stable
@@ -88,4 +95,4 @@ src/traffic_sim/
 - Dependencies: `pygame>=2.5.0`, `numpy>=1.24.0`, `polars>=1.38.1`
 - `tomllib` is stdlib (Python 3.11+) — no extra dep needed for config loading
 - Add packages: `uv add <pkg>`
-- No test suite yet — run `uv run traffic-sim` to verify changes visually
+- Test suite: `uv run pytest tests/` (67 tests across car, road, config, simulation)
