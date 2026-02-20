@@ -20,6 +20,8 @@ class RampConfig:
     onramp_rate: float = 0.5        # cars / second
     offramp_prob: float = 0.30      # probability a passing car exits
     min_gap_m: float = 20.0         # gap needed to merge from on-ramp
+    max_queue: int = 10             # max cars waiting on ramp (0 = no limit)
+    ramp_length_m: float = 200.0    # physical ramp length in metres
 
 
 @dataclass

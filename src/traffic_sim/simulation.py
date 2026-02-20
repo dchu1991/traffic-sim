@@ -160,7 +160,7 @@ class Simulation:
         return False
 
     def _process_onramp(self, ramp: Ramp, dt: float) -> None:
-        """Attempt to spawn a car from the on-ramp."""
+        """Add a car to the on-ramp queue at the configured rate."""
         if ramp.rate <= 0:
             return
         ramp._timer += dt
@@ -169,20 +169,70 @@ class Simulation:
             return
         ramp._timer -= interval
 
+        max_q = self.cfg.ramp.max_queue
+        if max_q > 0 and len(ramp.queue) >= max_q:
+            return  # ramp is backed up
+
+        # Spawn at back of ramp (position 0) at standstill
+        car = self._make_car(self._next_id, ramp.lane, 0.0)
+        car.velocity = 0.0
+        self._next_id += 1
+        ramp.queue.append(car)
+
+    def _step_ramp_queues(self, dt: float) -> None:
+        """Advance IDM physics for all on-ramp queue cars; merge lead car when gap allows."""
+        ramp_length = self.cfg.ramp.ramp_length_m
         min_gap = self.cfg.ramp.min_gap_m
-        test_car_len = 5.0
-        lane_cars = self.road.sorted_lane(ramp.lane)
-        ahead  = [c for c in lane_cars if c.position > ramp.position]
-        behind = [c for c in lane_cars if c.position <= ramp.position]
 
-        gap_ahead  = (ahead[0].position - ramp.position - ahead[0].length) if ahead else LARGE_GAP
-        gap_behind = (ramp.position - behind[-1].position - test_car_len) if behind else LARGE_GAP
+        for ramp in self.road.ramps:
+            if not ramp.is_onramp or not ramp.queue:
+                continue
 
-        if gap_ahead >= min_gap and gap_behind >= min_gap * 0.5:
-            car = self._make_car(self._next_id, ramp.lane, ramp.position)
-            self._next_id += 1
-            self.cars.append(car)
-            self.road.add_car(car)
+            lane_cars = self.road.sorted_lane(ramp.lane)
+            speed_limit = self.road.lane_speed_limits[ramp.lane]
+
+            # IDM update — front to back so each car sees fresh positions ahead
+            for i, car in enumerate(ramp.queue):
+                effective_v0 = min(car.desired_velocity, speed_limit)
+                if i == 0:
+                    # Lead car: treat nearest road car ahead of merge point as virtual leader
+                    ahead = [c for c in lane_cars if c.position > ramp.position]
+                    if ahead:
+                        road_gap = ahead[0].position - ramp.position - ahead[0].length
+                        lead_v = ahead[0].velocity
+                        lead_len = ahead[0].length
+                    else:
+                        road_gap = LARGE_GAP
+                        lead_v = speed_limit
+                        lead_len = 5.0
+                    # Map road leader into ramp-space: virtual front = ramp_length + road_gap
+                    effective_gap = max(0.0, ramp_length + road_gap - lead_len - car.position)
+                else:
+                    leader = ramp.queue[i - 1]
+                    effective_gap = max(0.0, leader.position - car.position - leader.length)
+                    lead_v = leader.velocity
+
+                accel = car.idm_acceleration(effective_gap, lead_v, effective_v0)
+                car.velocity = max(0.0, min(car.velocity + accel * dt, speed_limit))
+                car.position = min(car.position + car.velocity * dt, ramp_length)
+
+            # Merge check: lead car must be at the merge point and have a safe gap
+            lead = ramp.queue[0]
+            if lead.position < ramp_length - 0.5:
+                continue
+
+            lane_cars = self.road.sorted_lane(ramp.lane)  # refresh after position updates
+            ahead  = [c for c in lane_cars if c.position > ramp.position]
+            behind = [c for c in lane_cars if c.position <= ramp.position]
+            gap_ahead  = (ahead[0].position - ramp.position - ahead[0].length) if ahead else LARGE_GAP
+            gap_behind = (ramp.position - behind[-1].position - lead.length) if behind else LARGE_GAP
+
+            if gap_ahead >= min_gap and gap_behind >= min_gap * 0.5:
+                lead.position = ramp.position  # switch to road coordinates
+                lead.lane = ramp.lane
+                ramp.queue.pop(0)
+                self.cars.append(lead)
+                self.road.add_car(lead)
 
     # ------------------------------------------------------------------
     # Main step
@@ -194,12 +244,31 @@ class Simulation:
             self._try_lane_change(car)
 
         # 2. IDM update — enforce per-lane speed limit
+        #    Road cars in the rightmost lane also yield to any ramp lead car waiting to merge
+        ramp_length = self.cfg.ramp.ramp_length_m
         for car in self.cars:
             gap, lead_v = self.road.find_leader(car)
+            # Cooperative merge: yield to ramp lead car if it is near the merge point
+            for ramp in self.road.ramps:
+                if not ramp.is_onramp or not ramp.queue:
+                    continue
+                if car.lane != ramp.lane:
+                    continue
+                lead_q = ramp.queue[0]
+                if lead_q.position < ramp_length - 15.0:
+                    continue  # ramp car is still far back
+                if car.position < ramp.position:
+                    ramp_gap = ramp.position - car.position - lead_q.length
+                    if ramp_gap < gap:
+                        gap = max(0.0, ramp_gap)
+                        lead_v = lead_q.velocity
             limit = self.road.lane_speed_limits[car.lane]
             car.update(dt, gap, lead_v, self.road.length, speed_limit=limit)
 
-        # 3. Off-ramp processing — check which cars crossed a ramp this tick
+        # 3. Ramp queue physics + merge
+        self._step_ramp_queues(dt)
+
+        # 4. Off-ramp processing — check which cars crossed a ramp this tick
         to_remove: list[Car] = []
         for car in self.cars:
             for ramp in self.road.ramps:
@@ -216,12 +285,12 @@ class Simulation:
             self.road.remove_car(car)
             self.cars.remove(car)
 
-        # 4. On-ramp spawning
+        # 5. On-ramp queue spawning
         for ramp in self.road.ramps:
             if ramp.is_onramp:
                 self._process_onramp(ramp, dt)
 
-        # 5. Advance visual lane-change transitions
+        # 6. Advance visual lane-change transitions
         for cid in list(self._lane_transitions):
             from_lane, progress = self._lane_transitions[cid]
             progress += dt / self.lane_change_duration

@@ -63,7 +63,10 @@ class Visualizer:
 
         road_h = sim.road.num_lanes * LANE_HEIGHT
         self.W = width
-        self.H = MARGIN + road_h + HUD_HEIGHT
+        # Extra vertical space for on-ramp queue lane (if on-ramp is active)
+        self.has_onramp = sim.cfg.ramp.onramp_rate > 0
+        ramp_extra = LANE_HEIGHT if self.has_onramp else 0
+        self.H = MARGIN + road_h + ramp_extra + HUD_HEIGHT
 
         self.screen = pygame.display.set_mode((self.W, self.H))
         pygame.display.set_caption("Traffic Simulator")
@@ -78,6 +81,10 @@ class Visualizer:
         self.rw = self.W - MARGIN * 2
         self.rh = road_h
         self.scale = self.rw / sim.road.length   # px per metre
+        # Ramp lane geometry (directly below road)
+        self.ramp_lane_top = self.ry + self.rh
+        self.ramp_lane_cy  = self.ramp_lane_top + LANE_HEIGHT // 2
+        self.hud_extra     = ramp_extra   # pixels between road bottom and HUD
 
     # ── Coordinate helpers ─────────────────────────────────────────────────
 
@@ -112,19 +119,77 @@ class Visualizer:
     def _draw_ramps(self) -> None:
         for ramp in self.sim.road.ramps:
             x = self._px(ramp.position)
-            color = RAMP_ON_COLOR if ramp.is_onramp else RAMP_OFF_COLOR
-            label = "ON" if ramp.is_onramp else "OFF"
-            # Triangle marker on the road edge
             if ramp.is_onramp:
-                y_base = self.ry + self.rh  # bottom edge
-                pts = [(x - 8, y_base + 18), (x + 8, y_base + 18), (x, y_base + 2)]
-            else:
-                y_base = self.ry            # top edge
-                pts = [(x - 8, y_base - 18), (x + 8, y_base - 18), (x, y_base - 2)]
+                # On-ramp is represented by the queue lane drawn separately
+                continue
+            # Off-ramp: triangle above road
+            color = RAMP_OFF_COLOR
+            y_base = self.ry
+            pts = [(x - 8, y_base - 18), (x + 8, y_base - 18), (x, y_base - 2)]
             pygame.draw.polygon(self.screen, color, pts)
-            surf = self.font_sm.render(label, True, color)
-            self.screen.blit(surf, (x - surf.get_width() // 2,
-                                    pts[0][1] + (4 if ramp.is_onramp else -surf.get_height() - 2)))
+            surf = self.font_sm.render("OFF", True, color)
+            self.screen.blit(surf, (x - surf.get_width() // 2, pts[0][1] - surf.get_height() - 2))
+
+    def _draw_ramp_queue_lane(self) -> None:
+        """Draw the on-ramp queue lane below the main road, with waiting cars."""
+        if not self.has_onramp:
+            return
+        ramp_length_m = self.sim.cfg.ramp.ramp_length_m
+        ramp_length_px = int(ramp_length_m * self.scale)
+        lane_top = self.ramp_lane_top
+        lane_cy  = self.ramp_lane_cy
+
+        for ramp in self.sim.road.ramps:
+            if not ramp.is_onramp:
+                continue
+            ramp_x = self._px(ramp.position)
+
+            # Ramp lane background
+            pygame.draw.rect(self.screen, ROAD_COLOR,
+                             (ramp_x - ramp_length_px, lane_top, ramp_length_px, LANE_HEIGHT))
+            # Bottom edge
+            pygame.draw.line(self.screen, EDGE_COLOR,
+                             (ramp_x - ramp_length_px, lane_top + LANE_HEIGHT),
+                             (ramp_x, lane_top + LANE_HEIGHT), 2)
+            # Left (closed) end
+            pygame.draw.line(self.screen, EDGE_COLOR,
+                             (ramp_x - ramp_length_px, lane_top),
+                             (ramp_x - ramp_length_px, lane_top + LANE_HEIGHT), 2)
+
+            # Merge connector: small angled wedge joining ramp to rightmost road lane
+            rightmost_cy = self._lane_cy(self.sim.road.num_lanes - 1)
+            hw = LANE_HEIGHT // 2  # half-width of connector
+            wedge = [
+                (ramp_x - hw, lane_top),                        # ramp lane top-left
+                (ramp_x + hw, rightmost_cy - LANE_HEIGHT // 2), # road lane top-right
+                (ramp_x + hw, rightmost_cy + LANE_HEIGHT // 2), # road lane bottom-right
+                (ramp_x - hw, lane_top + LANE_HEIGHT),          # ramp lane bottom-left
+            ]
+            pygame.draw.polygon(self.screen, ROAD_COLOR, wedge)
+            pygame.draw.line(self.screen, EDGE_COLOR,
+                             (ramp_x - hw, lane_top),
+                             (ramp_x + hw, rightmost_cy - LANE_HEIGHT // 2), 1)
+            pygame.draw.line(self.screen, EDGE_COLOR,
+                             (ramp_x - hw, lane_top + LANE_HEIGHT),
+                             (ramp_x + hw, rightmost_cy + LANE_HEIGHT // 2), 2)
+
+            # "ON" label
+            surf = self.font_sm.render("ON", True, RAMP_ON_COLOR)
+            self.screen.blit(surf, (ramp_x - ramp_length_px + 4, lane_top + 3))
+
+            # Queue cars
+            for car in ramp.queue:
+                cx = ramp_x - int((ramp_length_m - car.position) * self.scale)
+                is_truck = car.length > 8.0
+                cw = TRUCK_W if is_truck else CAR_W
+                ch = TRUCK_H if is_truck else CAR_H
+                color = _speed_color(car.velocity)
+                rect = pygame.Rect(cx - cw, lane_cy - ch // 2, cw, ch)
+                pygame.draw.rect(self.screen, color, rect, border_radius=3)
+                pygame.draw.rect(self.screen, (15, 15, 15), rect, 1, border_radius=3)
+                lbl = self.font_sm.render(f"{car.velocity * 3.6:.0f}", True, (10, 10, 10))
+                self.screen.blit(lbl, (cx - cw // 2 - lbl.get_width() // 2,
+                                       lane_cy - lbl.get_height() // 2))
 
     def _draw_cars(self) -> None:
         for car in self.sim.cars:
@@ -146,7 +211,7 @@ class Visualizer:
                                    cy - lbl.get_height() // 2))
 
     def _draw_hud(self) -> None:
-        hud_y = self.ry + self.rh + 14
+        hud_y = self.ry + self.rh + self.hud_extra + 14
         status = "PAUSED" if self.paused else "RUNNING"
 
         limits_str = "  |  ".join(
@@ -221,6 +286,7 @@ class Visualizer:
 
             self.screen.fill(BG_COLOR)
             self._draw_road()
+            self._draw_ramp_queue_lane()
             self._draw_ramps()
             self._draw_cars()
             self._draw_hud()

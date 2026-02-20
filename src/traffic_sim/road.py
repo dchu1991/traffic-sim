@@ -18,6 +18,7 @@ class Ramp:
     # off-ramp: probability per meter that a passing car exits (≈ fraction of cars exiting)
     rate: float
     _timer: float = 0.0  # accumulates time between spawns (on-ramps only)
+    queue: list = field(default_factory=list)  # cars waiting to merge (on-ramp only)
 
 
 class Road:

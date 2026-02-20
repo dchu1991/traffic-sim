@@ -20,17 +20,19 @@ duration_s       = 1.2   # visual lane-change animation duration (seconds, cosme
 # Positions are fractions of road length (0.0 = start, 1.0 = end)
 onramp_position  = 0.10
 offramp_position = 0.80
-onramp_rate      = 0.5   # new cars spawned per second at the on-ramp
-offramp_prob     = 0.30  # probability that a car takes the off-ramp when passing it
+onramp_rate      = 0.5   # new cars spawned per second at the on-ramp (0 = disabled)
+offramp_prob     = 0.3   # probability that a car takes the off-ramp when passing it (0 = disabled)
 min_gap_m        = 20.0  # minimum gap (m) required to merge from the on-ramp
+max_queue        = 10    # max cars waiting on ramp (0 = no limit)
+ramp_length_m    = 200.0 # physical ramp length in metres (sets visual size)
 
 [cars]
 desired_v_mean_ms      = 33.0  # m/s — mean desired speed (~120 km/h)
 desired_v_std_ms       =  4.0
 desired_v_min_ms       = 22.0
 desired_v_max_ms       = 44.0
-time_headway_mean      =  1.5  # s — mean time gap to leader
-time_headway_std       =  0.3
+time_headway_mean      =  2.0  # s — mean time gap to leader (tighter = more unstable)
+time_headway_std       =  0.4
 min_gap_mean_m         =  2.0  # m — mean standstill gap
 max_accel_mean         =  1.5  # m/s² — mean max acceleration
 comfortable_decel_mean =  2.0  # m/s² — mean comfortable braking
