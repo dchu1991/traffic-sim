@@ -267,9 +267,14 @@ class Visualizer:
             "Controls:  [SPACE] pause   [↑/↓] sim speed   [Q] quit",
         ]
         if self.sim.cfg.ramp.target_cars > 0:
-            offramp = next((r for r in self.sim.road.ramps if not r.is_onramp), None)
+            onramp  = next((r for r in self.sim.road.ramps if r.is_onramp),      None)
+            offramp = next((r for r in self.sim.road.ramps if not r.is_onramp),  None)
+            parts = [f"Target: {self.sim.cfg.ramp.target_cars} cars"]
             if offramp:
-                lines.insert(2, f"Target: {self.sim.cfg.ramp.target_cars} cars  |  p_exit: {offramp.rate:.3f}")
+                parts.append(f"p_exit: {offramp.rate:.3f}")
+            if onramp:
+                parts.append(f"inflow: {onramp.rate:.2f}/s")
+            lines.insert(2, "  |  ".join(parts))
         for i, line in enumerate(lines):
             surf = self.font.render(line, True, HUD_COLOR)
             self.screen.blit(surf, (self.rx, hud_y + i * 22))

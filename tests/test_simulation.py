@@ -456,12 +456,13 @@ class TestGetVisualLane:
 # ── Off-ramp dynamic controller ───────────────────────────────────────────────
 
 class TestOfframpController:
-    """_update_offramp_control: proportional controller adjusts ramp.rate."""
+    """_update_ramp_control: coordinated on/off-ramp proportional controller."""
 
-    def _make_sim_with_cars(self, num_cars, target_cars, gain=0.01):
+    def _make_sim_with_cars(self, num_cars, target_cars, offramp_gain=0.01, onramp_gain=0.01):
         cfg = SimConfig()
         cfg.ramp.target_cars = target_cars
-        cfg.ramp.offramp_control_gain = gain
+        cfg.ramp.offramp_control_gain = offramp_gain
+        cfg.ramp.onramp_control_gain = onramp_gain
         cfg.ramp.offramp_prob = 0.3
         sim = make_sim(num_cars=0, cfg=cfg)
         # Place cars directly on road, spread across all lanes
@@ -475,12 +476,15 @@ class TestOfframpController:
     def _offramp(self, sim):
         return next(r for r in sim.road.ramps if not r.is_onramp)
 
+    def _onramp(self, sim):
+        return next(r for r in sim.road.ramps if r.is_onramp)
+
     def test_controller_raises_prob_when_over_target(self):
         """Too many cars → offramp prob increases."""
         sim = self._make_sim_with_cars(num_cars=10, target_cars=5)
         initial = self._offramp(sim).rate
         for _ in range(10):
-            sim._update_offramp_control(dt=1.0)
+            sim._update_ramp_control(dt=1.0)
         assert self._offramp(sim).rate > initial
 
     def test_controller_lowers_prob_when_under_target(self):
@@ -488,7 +492,7 @@ class TestOfframpController:
         sim = self._make_sim_with_cars(num_cars=2, target_cars=8)
         initial = self._offramp(sim).rate
         for _ in range(10):
-            sim._update_offramp_control(dt=1.0)
+            sim._update_ramp_control(dt=1.0)
         assert self._offramp(sim).rate < initial
 
     def test_controller_disabled_when_target_zero(self):
@@ -496,5 +500,29 @@ class TestOfframpController:
         sim = self._make_sim_with_cars(num_cars=5, target_cars=0)
         initial = self._offramp(sim).rate
         for _ in range(10):
-            sim._update_offramp_control(dt=1.0)
+            sim._update_ramp_control(dt=1.0)
         assert self._offramp(sim).rate == pytest.approx(initial)
+
+    def test_controller_reduces_onramp_rate_when_over_target(self):
+        """Too many cars → on-ramp intake decreases."""
+        sim = self._make_sim_with_cars(num_cars=10, target_cars=5)
+        initial = self._onramp(sim).rate
+        for _ in range(10):
+            sim._update_ramp_control(dt=1.0)
+        assert self._onramp(sim).rate < initial
+
+    def test_controller_raises_onramp_rate_when_under_target(self):
+        """Too few cars → on-ramp intake increases toward free-flow max."""
+        sim = self._make_sim_with_cars(num_cars=2, target_cars=8)
+        # Simulate a previously throttled state (controller had reduced rate earlier)
+        self._onramp(sim).rate = 0.2
+        for _ in range(10):
+            sim._update_ramp_control(dt=1.0)
+        assert self._onramp(sim).rate > 0.2
+
+    def test_onramp_rate_bounded_by_max(self):
+        """On-ramp rate never exceeds the configured free-flow ceiling."""
+        sim = self._make_sim_with_cars(num_cars=2, target_cars=100, onramp_gain=1.0)
+        for _ in range(50):
+            sim._update_ramp_control(dt=1.0)
+        assert self._onramp(sim).rate <= sim._onramp_rate_max

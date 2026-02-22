@@ -27,6 +27,7 @@ class RampConfig:
     ramp_length_m: float = 200.0    # physical ramp length in metres
     target_cars: int = 0            # 0 = disabled; controller adjusts offramp_prob to hit this count
     offramp_control_gain: float = 0.001  # prob per excess car per second (proportional gain)
+    onramp_control_gain: float = 0.001   # rate (cars/s) per excess car per second
 
 
 @dataclass

@@ -38,6 +38,7 @@ class Simulation:
         self._next_id = 0
 
         rc = self.cfg.ramp
+        self._onramp_rate_max: float = rc.onramp_rate   # free-flow ceiling for ramp metering
         rightmost = num_lanes - 1
         self.road.ramps = [
             Ramp(
@@ -186,15 +187,23 @@ class Simulation:
     # Ramp logic
     # ------------------------------------------------------------------
 
-    def _update_offramp_control(self, dt: float) -> None:
-        """Proportional controller: adjust offramp ramp.rate toward target car count."""
+    def _update_ramp_control(self, dt: float) -> None:
+        """Proportional controller: both ramps respond to the same car-count error.
+
+        On-ramp metering (primary): reduce intake when over target — mirrors real ramp signals.
+        Off-ramp probability (secondary): raise exit chance when over target.
+        Both are bounded: onramp by the configured free-flow ceiling, offramp by [0, 1].
+        """
         target = self.cfg.ramp.target_cars
         if target <= 0:
             return
-        error = self.car_count - target  # positive = too many → raise exit prob
-        gain = self.cfg.ramp.offramp_control_gain
+        error = self.car_count - target  # positive = too many cars
         for ramp in self.road.ramps:
-            if not ramp.is_onramp:
+            if ramp.is_onramp:
+                gain = self.cfg.ramp.onramp_control_gain
+                ramp.rate = max(0.0, min(self._onramp_rate_max, ramp.rate - gain * error * dt))
+            else:
+                gain = self.cfg.ramp.offramp_control_gain
                 ramp.rate = max(0.0, min(1.0, ramp.rate + gain * error * dt))
 
     def _process_offramp(self, car: Car, ramp: Ramp) -> bool:
@@ -385,7 +394,7 @@ class Simulation:
             self.cars.remove(car)
 
         # 4b. Dynamic off-ramp control
-        self._update_offramp_control(dt)
+        self._update_ramp_control(dt)
 
         # 5. On-ramp queue spawning
         for ramp in self.road.ramps:
