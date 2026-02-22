@@ -266,12 +266,16 @@ class Visualizer:
             f"Limits (L\u2192R):  {limits_str}",
             "Controls:  [SPACE] pause   [↑/↓] sim speed   [Q] quit",
         ]
+        if self.sim.cfg.ramp.target_cars > 0:
+            offramp = next((r for r in self.sim.road.ramps if not r.is_onramp), None)
+            if offramp:
+                lines.insert(2, f"Target: {self.sim.cfg.ramp.target_cars} cars  |  p_exit: {offramp.rate:.3f}")
         for i, line in enumerate(lines):
             surf = self.font.render(line, True, HUD_COLOR)
             self.screen.blit(surf, (self.rx, hud_y + i * 22))
 
-        # Density bar
-        self._draw_density_bar(hud_y + 94)
+        # Density bar — position after all HUD text lines
+        self._draw_density_bar(hud_y + len(lines) * 22 + 6)
 
     def _draw_density_bar(self, y: int) -> None:
         num_bins = 40

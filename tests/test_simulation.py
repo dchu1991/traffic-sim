@@ -451,3 +451,50 @@ class TestGetVisualLane:
         sim._lane_transitions[car.car_id] = (0, 0.99)
         sim.step(0.5)   # progress += 0.5 / 1.2 → > 1.0
         assert car.car_id not in sim._lane_transitions
+
+
+# ── Off-ramp dynamic controller ───────────────────────────────────────────────
+
+class TestOfframpController:
+    """_update_offramp_control: proportional controller adjusts ramp.rate."""
+
+    def _make_sim_with_cars(self, num_cars, target_cars, gain=0.01):
+        cfg = SimConfig()
+        cfg.ramp.target_cars = target_cars
+        cfg.ramp.offramp_control_gain = gain
+        cfg.ramp.offramp_prob = 0.3
+        sim = make_sim(num_cars=0, cfg=cfg)
+        # Place cars directly on road, spread across all lanes
+        for i in range(num_cars):
+            car = make_car(car_id=i, lane=i % sim.road.num_lanes,
+                           position=float(i * 50 + 50), velocity=20.0)
+            sim.cars.append(car)
+            sim.road.add_car(car)
+        return sim
+
+    def _offramp(self, sim):
+        return next(r for r in sim.road.ramps if not r.is_onramp)
+
+    def test_controller_raises_prob_when_over_target(self):
+        """Too many cars → offramp prob increases."""
+        sim = self._make_sim_with_cars(num_cars=10, target_cars=5)
+        initial = self._offramp(sim).rate
+        for _ in range(10):
+            sim._update_offramp_control(dt=1.0)
+        assert self._offramp(sim).rate > initial
+
+    def test_controller_lowers_prob_when_under_target(self):
+        """Too few cars → offramp prob decreases."""
+        sim = self._make_sim_with_cars(num_cars=2, target_cars=8)
+        initial = self._offramp(sim).rate
+        for _ in range(10):
+            sim._update_offramp_control(dt=1.0)
+        assert self._offramp(sim).rate < initial
+
+    def test_controller_disabled_when_target_zero(self):
+        """target_cars=0 → ramp.rate unchanged."""
+        sim = self._make_sim_with_cars(num_cars=5, target_cars=0)
+        initial = self._offramp(sim).rate
+        for _ in range(10):
+            sim._update_offramp_control(dt=1.0)
+        assert self._offramp(sim).rate == pytest.approx(initial)

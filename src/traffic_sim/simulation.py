@@ -162,6 +162,17 @@ class Simulation:
     # Ramp logic
     # ------------------------------------------------------------------
 
+    def _update_offramp_control(self, dt: float) -> None:
+        """Proportional controller: adjust offramp ramp.rate toward target car count."""
+        target = self.cfg.ramp.target_cars
+        if target <= 0:
+            return
+        error = self.car_count - target   # positive = too many → raise exit prob
+        gain  = self.cfg.ramp.offramp_control_gain
+        for ramp in self.road.ramps:
+            if not ramp.is_onramp:
+                ramp.rate = max(0.0, min(1.0, ramp.rate + gain * error * dt))
+
     def _process_offramp(self, car: Car, ramp: Ramp) -> bool:
         """Return True if the car should be removed from the simulation."""
         if car.lane != ramp.lane:
@@ -326,6 +337,9 @@ class Simulation:
             self._lane_transitions.pop(car.car_id, None)
             self.road.remove_car(car)
             self.cars.remove(car)
+
+        # 4b. Dynamic off-ramp control
+        self._update_offramp_control(dt)
 
         # 5. On-ramp queue spawning
         for ramp in self.road.ramps:

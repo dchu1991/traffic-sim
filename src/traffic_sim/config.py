@@ -25,6 +25,8 @@ class RampConfig:
     zipper_gap_m: float = 8.0       # gap required in zipper mode (~1 car length + buffer)
     max_queue: int = 10             # max cars waiting on ramp (0 = no limit)
     ramp_length_m: float = 200.0    # physical ramp length in metres
+    target_cars: int = 0            # 0 = disabled; controller adjusts offramp_prob to hit this count
+    offramp_control_gain: float = 0.001  # prob per excess car per second (proportional gain)
 
 
 @dataclass
