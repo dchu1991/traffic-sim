@@ -22,15 +22,16 @@ class Simulation:
         self.cfg = config or SimConfig()
         lc = self.cfg.lane_change
 
-        self.lane_change_cooldown  = lc.cooldown_s
+        self.lane_change_cooldown = lc.cooldown_s
         self.lane_change_incentive = lc.incentive_m
-        self.safety_gap            = lc.safety_gap_m
-        self.keep_right_gap        = lc.keep_right_gap_m
-        self.lane_change_duration  = lc.duration_s
+        self.safety_gap = lc.safety_gap_m
+        self.keep_right_gap = lc.keep_right_gap_m
+        self.lane_change_duration = lc.duration_s
 
         speed_limits = self.cfg.speed_limits_ms(num_lanes)
-        self.road = Road(length=road_length, num_lanes=num_lanes,
-                         lane_speed_limits=speed_limits)
+        self.road = Road(
+            length=road_length, num_lanes=num_lanes, lane_speed_limits=speed_limits
+        )
 
         self.cars: list[Car] = []
         self.time = 0.0
@@ -39,10 +40,18 @@ class Simulation:
         rc = self.cfg.ramp
         rightmost = num_lanes - 1
         self.road.ramps = [
-            Ramp(position=road_length * rc.onramp_position,
-                 lane=rightmost, is_onramp=True,  rate=rc.onramp_rate),
-            Ramp(position=road_length * rc.offramp_position,
-                 lane=rightmost, is_onramp=False, rate=rc.offramp_prob),
+            Ramp(
+                position=road_length * rc.onramp_position,
+                lane=rightmost,
+                is_onramp=True,
+                rate=rc.onramp_rate,
+            ),
+            Ramp(
+                position=road_length * rc.offramp_position,
+                lane=rightmost,
+                is_onramp=False,
+                rate=rc.offramp_prob,
+            ),
         ]
 
         # car_id → (from_lane, progress)  where progress runs 0 → 1
@@ -54,19 +63,30 @@ class Simulation:
     # Initialisation
     # ------------------------------------------------------------------
 
-    def _make_car(self, car_id: int, lane: int, position: float,
-                  is_truck: bool = False) -> Car:
+    def _make_car(
+        self, car_id: int, lane: int, position: float, is_truck: bool = False
+    ) -> Car:
         """Spawn a new car (or truck) with randomised IDM parameters from config."""
         if is_truck:
             tc = self.cfg.trucks
-            v0 = float(np.clip(random.gauss(tc.desired_v_mean_ms, tc.desired_v_std_ms),
-                               tc.desired_v_min_ms, tc.desired_v_max_ms))
+            v0 = float(
+                np.clip(
+                    random.gauss(tc.desired_v_mean_ms, tc.desired_v_std_ms),
+                    tc.desired_v_min_ms,
+                    tc.desired_v_max_ms,
+                )
+            )
             length = random.uniform(tc.length_min_m, tc.length_max_m)
             color: tuple[int, int, int] = (180, 140, 80)
         else:
             cc = self.cfg.cars
-            v0 = float(np.clip(random.gauss(cc.desired_v_mean_ms, cc.desired_v_std_ms),
-                               cc.desired_v_min_ms, cc.desired_v_max_ms))
+            v0 = float(
+                np.clip(
+                    random.gauss(cc.desired_v_mean_ms, cc.desired_v_std_ms),
+                    cc.desired_v_min_ms,
+                    cc.desired_v_max_ms,
+                )
+            )
             length = random.uniform(4.0, 5.5)
             h = random.random()
             r, g, b = colorsys.hsv_to_rgb(h, 0.75, 0.95)
@@ -80,12 +100,16 @@ class Simulation:
             velocity=v0 * 0.7,
             color=color,
             desired_velocity=v0,
-            time_headway=float(np.clip(random.gauss(cc.time_headway_mean, cc.time_headway_std),
-                                       0.8, 2.5)),
+            time_headway=float(
+                np.clip(
+                    random.gauss(cc.time_headway_mean, cc.time_headway_std), 0.8, 2.5
+                )
+            ),
             min_gap=float(np.clip(random.gauss(cc.min_gap_mean_m, 0.5), 1.0, 4.0)),
             max_accel=float(np.clip(random.gauss(cc.max_accel_mean, 0.3), 0.8, 2.5)),
-            comfortable_decel=float(np.clip(random.gauss(cc.comfortable_decel_mean, 0.4),
-                                            1.0, 3.5)),
+            comfortable_decel=float(
+                np.clip(random.gauss(cc.comfortable_decel_mean, 0.4), 1.0, 3.5)
+            ),
             length=length,
         )
 
@@ -167,8 +191,8 @@ class Simulation:
         target = self.cfg.ramp.target_cars
         if target <= 0:
             return
-        error = self.car_count - target   # positive = too many → raise exit prob
-        gain  = self.cfg.ramp.offramp_control_gain
+        error = self.car_count - target  # positive = too many → raise exit prob
+        gain = self.cfg.ramp.offramp_control_gain
         for ramp in self.road.ramps:
             if not ramp.is_onramp:
                 ramp.rate = max(0.0, min(1.0, ramp.rate + gain * error * dt))
@@ -205,11 +229,11 @@ class Simulation:
 
     def _step_ramp_queues(self, dt: float) -> None:
         """Advance IDM physics for all on-ramp queue cars; merge lead car when gap allows."""
-        ramp_length   = self.cfg.ramp.ramp_length_m
-        min_gap       = self.cfg.ramp.min_gap_m
-        merge_window  = min(self.cfg.ramp.merge_window_m, ramp_length)
-        zipper_speed  = self.cfg.ramp.zipper_speed_kmh / 3.6
-        zipper_gap    = self.cfg.ramp.zipper_gap_m
+        ramp_length = self.cfg.ramp.ramp_length_m
+        min_gap = self.cfg.ramp.min_gap_m
+        merge_window = min(self.cfg.ramp.merge_window_m, ramp_length)
+        zipper_speed = self.cfg.ramp.zipper_speed_kmh / 3.6
+        zipper_gap = self.cfg.ramp.zipper_gap_m
 
         for ramp in self.road.ramps:
             if not ramp.is_onramp or not ramp.queue:
@@ -233,10 +257,14 @@ class Simulation:
                         lead_v = speed_limit
                         lead_len = 5.0
                     # Map road leader into ramp-space: virtual front = ramp_length + road_gap
-                    effective_gap = max(0.0, ramp_length + road_gap - lead_len - car.position)
+                    effective_gap = max(
+                        0.0, ramp_length + road_gap - lead_len - car.position
+                    )
                 else:
                     leader = ramp.queue[i - 1]
-                    effective_gap = max(0.0, leader.position - car.position - leader.length)
+                    effective_gap = max(
+                        0.0, leader.position - car.position - leader.length
+                    )
                     lead_v = leader.velocity
 
                 accel = car.idm_acceleration(effective_gap, lead_v, effective_v0)
@@ -253,18 +281,33 @@ class Simulation:
             # are further upstream on the road.
             entry_pos = ramp.position - (ramp_length - lead.position)
 
-            lane_cars = self.road.sorted_lane(ramp.lane)  # refresh after position updates
+            lane_cars = self.road.sorted_lane(
+                ramp.lane
+            )  # refresh after position updates
 
             # Zipper merge: lower gap requirement when rightmost lane is crawling
-            nearby = [c for c in lane_cars
-                      if 0 < (ramp.position - c.position) % self.road.length <= merge_window]
-            avg_speed = sum(c.velocity for c in nearby) / len(nearby) if nearby else float('inf')
+            nearby = [
+                c
+                for c in lane_cars
+                if 0 < (ramp.position - c.position) % self.road.length <= merge_window
+            ]
+            avg_speed = (
+                sum(c.velocity for c in nearby) / len(nearby)
+                if nearby
+                else float("inf")
+            )
             effective_min_gap = zipper_gap if avg_speed < zipper_speed else min_gap
 
-            ahead  = [c for c in lane_cars if c.position > entry_pos]
+            ahead = [c for c in lane_cars if c.position > entry_pos]
             behind = [c for c in lane_cars if c.position <= entry_pos]
-            gap_ahead  = (ahead[0].position - entry_pos - ahead[0].length) if ahead else LARGE_GAP
-            gap_behind = (entry_pos - behind[-1].position - lead.length) if behind else LARGE_GAP
+            gap_ahead = (
+                (ahead[0].position - entry_pos - ahead[0].length)
+                if ahead
+                else LARGE_GAP
+            )
+            gap_behind = (
+                (entry_pos - behind[-1].position - lead.length) if behind else LARGE_GAP
+            )
 
             # In zipper mode (slow traffic) only gap_ahead matters — cars are nearly
             # stopped so the one behind can react within a tick via IDM.
@@ -273,7 +316,10 @@ class Simulation:
             if zipper_active:
                 can_merge = gap_ahead >= effective_min_gap
             else:
-                can_merge = gap_ahead >= effective_min_gap and gap_behind >= effective_min_gap * 0.5
+                can_merge = (
+                    gap_ahead >= effective_min_gap
+                    and gap_behind >= effective_min_gap * 0.5
+                )
             if can_merge:
                 lead.position = entry_pos  # enter road at mapped position
                 lead.lane = ramp.lane

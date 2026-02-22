@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -21,15 +22,17 @@ class Recorder:
         time_s, car_id, lane, position_m, speed_kmh, accel_ms2
     """
 
-    def __init__(self, sample_interval: float = 1.0, record_cars: bool = False):
+    def __init__(self, sample_interval: float = 1.0, record_cars: bool = False,
+                 metadata: dict | None = None):
         self.sample_interval = sample_interval
         self.record_cars = record_cars
+        self._metadata: dict = metadata or {}
         self._next_sample: float = 0.0
 
         # Column-oriented buffers — faster to build DataFrames from than list[dict]
         self._agg: dict[str, list] = {
             "time_s": [], "car_count": [], "avg_speed_kmh": [],
-            "density_veh_per_km": [], "flow_veh_per_h": [],
+            "density_veh_per_km": [], "flow_veh_per_h": [], "offramp_prob": [],
         }
         self._traj: dict[str, list] = {
             "time_s": [], "car_id": [], "lane": [],
@@ -49,11 +52,14 @@ class Recorder:
         density   = n / (sim.road.length / 1000.0)   # veh / km
         flow      = density * avg_speed               # veh / h
 
+        offramp_prob = next((r.rate for r in sim.road.ramps if not r.is_onramp), 0.0)
+
         self._agg["time_s"].append(round(sim.time, 2))
         self._agg["car_count"].append(n)
         self._agg["avg_speed_kmh"].append(round(avg_speed, 2))
         self._agg["density_veh_per_km"].append(round(density, 2))
         self._agg["flow_veh_per_h"].append(round(flow, 1))
+        self._agg["offramp_prob"].append(round(offramp_prob, 4))
 
         if self.record_cars:
             t = round(sim.time, 2)
@@ -83,6 +89,12 @@ class Recorder:
             traj_path = os.path.join(output_dir, f"traffic_cars_{ts}.parquet")
             pl.DataFrame(self._traj).write_parquet(traj_path)
             written.append(traj_path)
+
+        if self._metadata:
+            meta_path = os.path.join(output_dir, f"traffic_meta_{ts}.json")
+            with open(meta_path, "w") as f:
+                json.dump(self._metadata, f, indent=2)
+            written.append(meta_path)
 
         return written
 

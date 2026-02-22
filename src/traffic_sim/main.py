@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import os
 
 from .config import SimConfig
@@ -45,9 +46,18 @@ def main() -> None:
 
     recorder = None
     if args.record or args.record_cars:
+        metadata = {
+            "road_length_m":    args.length,
+            "num_lanes":        args.lanes,
+            "num_cars":         args.cars,
+            "truck_fraction":   args.trucks,
+            "record_interval_s": args.record_interval,
+            "config":           dataclasses.asdict(cfg),
+        }
         recorder = Recorder(
             sample_interval=args.record_interval,
             record_cars=args.record_cars,
+            metadata=metadata,
         )
 
     viz = Visualizer(sim, recorder=recorder, width=args.width, fps=args.fps)
