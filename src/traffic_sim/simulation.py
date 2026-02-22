@@ -3,8 +3,6 @@ from __future__ import annotations
 import colorsys
 import random
 
-import numpy as np
-
 from .car import Car
 from .config import SimConfig
 from .road import LARGE_GAP, Ramp, Road
@@ -70,24 +68,14 @@ class Simulation:
         """Spawn a new car (or truck) with randomised IDM parameters from config."""
         if is_truck:
             tc = self.cfg.trucks
-            v0 = float(
-                np.clip(
-                    random.gauss(tc.desired_v_mean_ms, tc.desired_v_std_ms),
-                    tc.desired_v_min_ms,
-                    tc.desired_v_max_ms,
-                )
-            )
+            v0 = max(tc.desired_v_min_ms, min(tc.desired_v_max_ms,
+                     random.gauss(tc.desired_v_mean_ms, tc.desired_v_std_ms)))
             length = random.uniform(tc.length_min_m, tc.length_max_m)
             color: tuple[int, int, int] = (180, 140, 80)
         else:
             cc = self.cfg.cars
-            v0 = float(
-                np.clip(
-                    random.gauss(cc.desired_v_mean_ms, cc.desired_v_std_ms),
-                    cc.desired_v_min_ms,
-                    cc.desired_v_max_ms,
-                )
-            )
+            v0 = max(cc.desired_v_min_ms, min(cc.desired_v_max_ms,
+                     random.gauss(cc.desired_v_mean_ms, cc.desired_v_std_ms)))
             length = random.uniform(4.0, 5.5)
             h = random.random()
             r, g, b = colorsys.hsv_to_rgb(h, 0.75, 0.95)
@@ -101,27 +89,26 @@ class Simulation:
             velocity=v0 * 0.7,
             color=color,
             desired_velocity=v0,
-            time_headway=float(
-                np.clip(
-                    random.gauss(cc.time_headway_mean, cc.time_headway_std), 0.8, 2.5
-                )
-            ),
-            min_gap=float(np.clip(random.gauss(cc.min_gap_mean_m, 0.5), 1.0, 4.0)),
-            max_accel=float(np.clip(random.gauss(cc.max_accel_mean, 0.3), 0.8, 2.5)),
-            comfortable_decel=float(
-                np.clip(random.gauss(cc.comfortable_decel_mean, 0.4), 1.0, 3.5)
-            ),
+            time_headway=max(0.8, min(2.5, random.gauss(cc.time_headway_mean, cc.time_headway_std))),
+            min_gap=max(1.0, min(4.0, random.gauss(cc.min_gap_mean_m, 0.5))),
+            max_accel=max(0.8, min(2.5, random.gauss(cc.max_accel_mean, 0.3))),
+            comfortable_decel=max(1.0, min(3.5, random.gauss(cc.comfortable_decel_mean, 0.4))),
             length=length,
         )
 
     def _spawn_initial_cars(self, num_cars: int, truck_fraction: float) -> None:
         per_lane = num_cars // self.road.num_lanes
+        min_space = self.cfg.cars.min_gap_mean_m + 5.0  # min gap + typical car length
         for lane in range(self.road.num_lanes):
             count = per_lane + (1 if lane < num_cars % self.road.num_lanes else 0)
-            positions = sorted(np.random.uniform(0.0, self.road.length, count))
+            # Guarantee minimum spacing: map uniform samples onto positions with
+            # at least min_space between each car.
+            available = max(0.0, self.road.length - count * min_space)
+            raw = sorted(random.uniform(0.0, available) for _ in range(count))
+            positions = [r + i * min_space for i, r in enumerate(raw)]
             for pos in positions:
                 is_truck = random.random() < truck_fraction
-                car = self._make_car(self._next_id, lane, float(pos), is_truck)
+                car = self._make_car(self._next_id, lane, pos, is_truck)
                 self._next_id += 1
                 self.cars.append(car)
                 self.road.add_car(car)
@@ -433,7 +420,7 @@ class Simulation:
     def avg_speed_kmh(self) -> float:
         if not self.cars:
             return 0.0
-        return float(np.mean([c.velocity for c in self.cars])) * 3.6
+        return sum(c.velocity for c in self.cars) / len(self.cars) * 3.6
 
     @property
     def car_count(self) -> int:

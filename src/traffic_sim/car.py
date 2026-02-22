@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import numpy as np
+import math
 from dataclasses import dataclass, field
 
 
@@ -42,7 +42,7 @@ class Car:
         s_star = (
             self.min_gap
             + max(0.0, v * self.time_headway
-                  + v * delta_v / (2.0 * np.sqrt(self.max_accel * self.comfortable_decel)))
+                  + v * delta_v / (2.0 * math.sqrt(self.max_accel * self.comfortable_decel)))
         )
 
         accel = self.max_accel * (
@@ -50,7 +50,7 @@ class Car:
             - (v / v0) ** self.accel_exponent
             - (s_star / max(gap, 0.1)) ** 2
         )
-        return float(np.clip(accel, -9.0, self.max_accel))
+        return max(-9.0, min(self.max_accel, accel))
 
     def update(self, dt: float, gap: float, lead_velocity: float,
                road_length: float, speed_limit: float = float('inf')) -> None:

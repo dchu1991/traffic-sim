@@ -24,9 +24,12 @@ _SPEED_MID  = (250, 200,  50)   # ~60 km/h
 _SPEED_HIGH = ( 50, 200, 100)   # ≥ 120 km/h (33 m/s)
 
 # ── Layout constants ────────────────────────────────────────────────────────
-LANE_HEIGHT = 52   # px per lane
-MARGIN      = 55   # px left/right/top border
-HUD_HEIGHT  = 140  # px below road
+LANE_HEIGHT  = 52   # px per lane
+MARGIN       = 55   # px left/right/top border
+HUD_LINE_H   = 22   # px per HUD text line
+HUD_PADDING  = 14   # px gap between road and first HUD line
+HUD_BAR_H    = 22   # px for density bar
+HUD_MARGIN   = 10   # px below density bar
 
 # Car visual sizes: cw (along road) > ch (across road), front bumper = right edge of rect
 CAR_W   = 16   # px along road  — regular car
@@ -90,7 +93,9 @@ class Visualizer:
         # Extra vertical space for on-ramp queue lane (if on-ramp is active)
         self.has_onramp = sim.cfg.ramp.onramp_rate > 0
         ramp_extra = LANE_HEIGHT if self.has_onramp else 0
-        self.H = MARGIN + road_h + ramp_extra + HUD_HEIGHT
+        hud_lines = 5 if sim.cfg.ramp.target_cars > 0 else 4
+        hud_h = HUD_PADDING + hud_lines * HUD_LINE_H + 6 + HUD_BAR_H + HUD_MARGIN
+        self.H = MARGIN + road_h + ramp_extra + hud_h
 
         self.screen = pygame.display.set_mode((self.W, self.H))
         pygame.display.set_caption("Traffic Simulator")
@@ -252,7 +257,7 @@ class Visualizer:
                                    cy - lbl.get_height() // 2))
 
     def _draw_hud(self) -> None:
-        hud_y = self.ry + self.rh + self.hud_extra + 14
+        hud_y = self.ry + self.rh + self.hud_extra + HUD_PADDING
         status = "PAUSED" if self.paused else "RUNNING"
 
         limits_str = "  |  ".join(
@@ -277,10 +282,10 @@ class Visualizer:
             lines.insert(2, "  |  ".join(parts))
         for i, line in enumerate(lines):
             surf = self.font.render(line, True, HUD_COLOR)
-            self.screen.blit(surf, (self.rx, hud_y + i * 22))
+            self.screen.blit(surf, (self.rx, hud_y + i * HUD_LINE_H))
 
         # Density bar — position after all HUD text lines
-        self._draw_density_bar(hud_y + len(lines) * 22 + 6)
+        self._draw_density_bar(hud_y + len(lines) * HUD_LINE_H + 6)
 
     def _draw_density_bar(self, y: int) -> None:
         num_bins = 40
@@ -290,7 +295,7 @@ class Visualizer:
             idx = min(int(car.position / self.sim.road.length * num_bins), num_bins - 1)
             counts[idx] += 1
         max_count = max(counts) if any(counts) else 1
-        bar_h = 22
+        bar_h = HUD_BAR_H
         lbl = self.font_sm.render("density:", True, HUD_COLOR)
         self.screen.blit(lbl, (self.rx, y - 1))
         offset = lbl.get_width() + 6
