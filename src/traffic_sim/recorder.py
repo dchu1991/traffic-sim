@@ -22,8 +22,12 @@ class Recorder:
         time_s, car_id, lane, position_m, speed_kmh, accel_ms2
     """
 
-    def __init__(self, sample_interval: float = 1.0, record_cars: bool = False,
-                 metadata: dict | None = None):
+    def __init__(
+        self,
+        sample_interval: float = 1.0,
+        record_cars: bool = False,
+        metadata: dict | None = None,
+    ):
         self.sample_interval = sample_interval
         self.record_cars = record_cars
         self._metadata: dict = metadata or {}
@@ -31,13 +35,23 @@ class Recorder:
 
         # Column-oriented buffers — faster to build DataFrames from than list[dict]
         self._agg: dict[str, list] = {
-            "time_s": [], "car_count": [], "avg_speed_kmh": [],
-            "density_veh_per_km": [], "flow_veh_per_h": [],
-            "onramp_rate": [], "offramp_prob": [],
+            "time_s": [],
+            "car_count": [],
+            "avg_speed_kmh": [],
+            "density_veh_per_km": [],
+            "flow_veh_per_h": [],
+            "onramp_rate": [],
+            "offramp_prob": [],
         }
         self._traj: dict[str, list] = {
-            "time_s": [], "car_id": [], "lane": [],
-            "position_m": [], "speed_kmh": [], "accel_ms2": [],
+            "time_s": [],
+            "car_id": [],
+            "lane": [],
+            "position_m": [],
+            "speed_kmh": [],
+            "accel_ms2": [],
+            "laps_completed": [],
+            "destination_laps": [],
         }
 
     # ------------------------------------------------------------------
@@ -50,10 +64,10 @@ class Recorder:
         speeds = [c.velocity * 3.6 for c in sim.cars]
         n = len(speeds)
         avg_speed = sum(speeds) / n if n else 0.0
-        density   = n / (sim.road.length / 1000.0)   # veh / km
-        flow      = density * avg_speed               # veh / h
+        density = n / (sim.road.length / 1000.0)  # veh / km
+        flow = density * avg_speed  # veh / h
 
-        onramp_rate  = next((r.rate for r in sim.road.ramps if r.is_onramp),      0.0)
+        onramp_rate = next((r.rate for r in sim.road.ramps if r.is_onramp), 0.0)
         offramp_prob = next((r.rate for r in sim.road.ramps if not r.is_onramp), 0.0)
 
         self._agg["time_s"].append(round(sim.time, 2))
@@ -73,6 +87,8 @@ class Recorder:
                 self._traj["position_m"].append(round(car.position, 1))
                 self._traj["speed_kmh"].append(round(car.velocity * 3.6, 1))
                 self._traj["accel_ms2"].append(round(car.acceleration, 3))
+                self._traj["laps_completed"].append(car.laps_completed)
+                self._traj["destination_laps"].append(car.destination_laps)
 
     # ------------------------------------------------------------------
 

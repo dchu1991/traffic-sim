@@ -54,6 +54,14 @@ class TruckSpawnConfig:
 
 
 @dataclass
+class DestinationConfig:
+    enabled: bool = False           # False = classic probabilistic offramp_prob behavior
+    min_loops: int = 5              # every car completes at least this many laps
+    loops_lambda: float = 3.0       # Poisson(λ) extra laps; mean destination = min_loops + λ
+    exit_lookahead_m: float = 300.0  # metres before off-ramp where car commits to right lane
+
+
+@dataclass
 class SimConfig:
     # Speed limits in km/h, index 0 = leftmost (fast) lane
     lane_speed_limits_kmh: list[float] = field(
@@ -63,6 +71,7 @@ class SimConfig:
     ramp: RampConfig = field(default_factory=RampConfig)
     cars: CarSpawnConfig = field(default_factory=CarSpawnConfig)
     trucks: TruckSpawnConfig = field(default_factory=TruckSpawnConfig)
+    destination: DestinationConfig = field(default_factory=DestinationConfig)
 
     # ------------------------------------------------------------------
 
@@ -83,6 +92,8 @@ class SimConfig:
             cfg.cars = CarSpawnConfig(**data["cars"])
         if "trucks" in data:
             cfg.trucks = TruckSpawnConfig(**data["trucks"])
+        if "destination" in data:
+            cfg.destination = DestinationConfig(**data["destination"])
         return cfg
 
     def speed_limits_ms(self, num_lanes: int) -> list[float]:
