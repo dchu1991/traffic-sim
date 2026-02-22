@@ -31,6 +31,7 @@ ramp_length_m    = 200.0 # physical ramp length in metres (sets visual size)
 target_cars = 100        # 0 = disabled; auto-adjusts offramp_prob to maintain this car count
 #                         # static formula: onramp_rate * road_length / (N * v_avg_ms)
 # offramp_control_gain = 0.001  # probability per excess car per second
+# onramp_control_gain  = 0.001  # rate (cars/s) per excess car per second
 
 [cars]
 desired_v_mean_ms      = 33.0  # m/s — mean desired speed (~120 km/h)

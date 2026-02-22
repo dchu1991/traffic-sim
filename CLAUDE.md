@@ -64,6 +64,7 @@ src/traffic_sim/
 - Cooperative yield: road cars in rightmost lane treat the ramp lead car as a virtual obstacle when within 15 m of merge point; only applies when `ramp_gap > 0` (avoids deadlock)
 - Merge animation: ramp car slides from `_lane_cy(num_lanes)` → rightmost lane using same smoothstep system as lane changes
 - Merge window is highlighted in visualizer with a green tint + dashed top edge and start marker
+- **Dynamic ramp control**: `_update_ramp_control()` in `simulation.py` — proportional controller adjusts both `ramp.rate` (on-ramp) and `ramp.rate` (off-ramp prob) to drive `car_count → target_cars`; gains set by `onramp_control_gain` / `offramp_control_gain`; disabled when `target_cars = 0`
 
 **Car rendering** — `visualizer.py:_draw_cars()`:
 - Front bumper = right edge of rect (`Rect(cx - cw, cy - ch//2, cw, ch)`)
@@ -74,8 +75,10 @@ src/traffic_sim/
 **Data recording** — `recorder.py`:
 - Column-oriented `dict[str, list]` buffers, flushed to `pl.DataFrame` on `save()`
 - Output directory: `logs/` (created automatically; git-ignored)
-- Aggregate file: `logs/traffic_aggregate_<ts>.parquet` — `time_s, car_count, avg_speed_kmh, density_veh_per_km, flow_veh_per_h`
+- Aggregate file: `logs/traffic_aggregate_<ts>.parquet` — `time_s, car_count, avg_speed_kmh, density_veh_per_km, flow_veh_per_h, onramp_rate, offramp_prob`
 - Trajectory file (`--record-cars`): `logs/traffic_cars_<ts>.parquet` — `time_s, car_id, lane, position_m, speed_kmh, accel_ms2`
+- Metadata sidecar: `logs/traffic_meta_<ts>.json` — CLI args + `dataclasses.asdict(cfg)` snapshot; written whenever `metadata` dict is passed to `Recorder`
+- `onramp_rate` and `offramp_prob` are sampled live from `ramp.rate` each tick (reflect controller adjustments when `target_cars > 0`)
 
 ## Editing tips
 
@@ -84,15 +87,25 @@ src/traffic_sim/
 - **Keep-right aggressiveness**: `keep_right_gap_m` in `[lane_change]` (0 = disabled)
 - **Overtaking threshold**: `incentive_m` in `[lane_change]`
 - **Traffic density**: `--cars` or `onramp_rate` in `[ramp]`
+- **Steady car count**: set `target_cars` in `[ramp]`; tune with `onramp_control_gain` / `offramp_control_gain`
 - **Merge aggressiveness**: `merge_window_m` (wider = earlier), `min_gap_m` (normal), `zipper_gap_m` (congested), `zipper_speed_kmh` (threshold)
 - **Driver aggression**: `desired_v_mean_ms`, `time_headway_mean` etc. in `[cars]`
 - Car colour encodes speed: red (0 km/h) → yellow (60 km/h) → green (120+ km/h)
 - Simulation substep count scales with `speed_mult` to keep IDM numerically stable
 
+## Analysis notebook
+
+- Location: `notebook/analysis.ipynb` (git-ignored via `notebook/` in `.gitignore`)
+- Launch: `uv run jupyter lab notebook/analysis.ipynb`
+- Loads most recent `logs/traffic_aggregate_<ts>.parquet` + matching `traffic_cars_<ts>.parquet` and `traffic_meta_<ts>.json` automatically
+- Charts: speed + car count (per-lane ±std bands), ramp control signals (`onramp_rate` / `offramp_prob`), fundamental diagram, speed distribution by lane, space–time diagram (all lanes, custom traffic colorscale), car lifetime table
+- Entry/exit derived from trajectory data (`first/last appearance of car_id`); accurate to ±1 sample interval
+
 ## Python / tooling
 
 - Python 3.13, managed by `uv`
-- Dependencies: `pygame>=2.5.0`, `numpy>=1.24.0`, `polars>=1.38.1`
+- Runtime deps: `pygame>=2.5.0`, `numpy>=1.24.0`, `polars>=1.38.1`
+- Dev deps (notebook): `jupyter`, `matplotlib`, `plotly`, `pandas`, `pyarrow`, `anywidget`
 - `tomllib` is stdlib (Python 3.11+) — no extra dep needed for config loading
-- Add packages: `uv add <pkg>`
+- Add packages: `uv add <pkg>`; notebook-only: `uv add --dev <pkg>`
 - Test suite: `uv run pytest tests/` (67 tests across car, road, config, simulation)

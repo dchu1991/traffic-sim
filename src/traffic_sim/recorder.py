@@ -32,7 +32,8 @@ class Recorder:
         # Column-oriented buffers — faster to build DataFrames from than list[dict]
         self._agg: dict[str, list] = {
             "time_s": [], "car_count": [], "avg_speed_kmh": [],
-            "density_veh_per_km": [], "flow_veh_per_h": [], "offramp_prob": [],
+            "density_veh_per_km": [], "flow_veh_per_h": [],
+            "onramp_rate": [], "offramp_prob": [],
         }
         self._traj: dict[str, list] = {
             "time_s": [], "car_id": [], "lane": [],
@@ -52,6 +53,7 @@ class Recorder:
         density   = n / (sim.road.length / 1000.0)   # veh / km
         flow      = density * avg_speed               # veh / h
 
+        onramp_rate  = next((r.rate for r in sim.road.ramps if r.is_onramp),      0.0)
         offramp_prob = next((r.rate for r in sim.road.ramps if not r.is_onramp), 0.0)
 
         self._agg["time_s"].append(round(sim.time, 2))
@@ -59,6 +61,7 @@ class Recorder:
         self._agg["avg_speed_kmh"].append(round(avg_speed, 2))
         self._agg["density_veh_per_km"].append(round(density, 2))
         self._agg["flow_veh_per_h"].append(round(flow, 1))
+        self._agg["onramp_rate"].append(round(onramp_rate, 4))
         self._agg["offramp_prob"].append(round(offramp_prob, 4))
 
         if self.record_cars:

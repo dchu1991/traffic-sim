@@ -13,7 +13,8 @@ A freeway traffic simulator built in Python with real-time pygame visualization.
 - **Off-ramp** — removes passing cars probabilistically
 - **Cooperative yielding** — road cars near the ramp tip shorten their gap to the ramp car, helping it slot in
 - **Behaviour config** — all driving parameters live in `config.toml`; no code changes needed
-- **Data recording** — optional Parquet export of aggregate stats and per-car trajectories
+- **Dynamic ramp control** — optional proportional controller holds a target car count by adjusting `onramp_rate` and `offramp_prob` in real time (`target_cars` in `[ramp]`)
+- **Data recording** — optional Parquet export of aggregate stats, per-car trajectories, and a JSON metadata sidecar; interactive analysis notebook included
 - **pygame HUD** — live speed, car count, density bar, per-lane speed limits; pause/speed controls
 
 ## Quick start
@@ -96,6 +97,10 @@ zipper_speed_kmh = 30.0  # rightmost lane avg speed below which zipper merge act
 zipper_gap_m     = 8.0   # gap required in zipper mode (~1 car length)
 max_queue        = 10    # max cars waiting on ramp (0 = no limit)
 ramp_length_m    = 200.0 # physical ramp length in metres
+# Dynamic ramp control — adjusts onramp_rate + offramp_prob to hold this car count (0 = off)
+target_cars           = 0
+onramp_control_gain   = 0.001
+offramp_control_gain  = 0.001
 
 [cars]
 desired_v_mean_ms = 33.0  # ~120 km/h
@@ -115,6 +120,7 @@ Key tuning knobs:
 | Disable keep-right | `keep_right_gap_m = 0` |
 | Busier ramp | raise `onramp_rate` |
 | More zipper merging | raise `zipper_speed_kmh` |
+| Hold a steady car count | set `target_cars` (enables proportional controller) |
 
 ## On-ramp queue & merge logic
 
@@ -134,30 +140,27 @@ Road cars within the merge window also **cooperatively yield** by treating the r
 
 ## Data analysis
 
-When `--record` is passed, files are written to `logs/` on exit:
+When `--record` is passed, three files are written to `logs/` on exit:
 
-| File | Columns |
+| File | Contents |
 |------|---------|
-| `logs/traffic_aggregate_<ts>.parquet` | `time_s`, `car_count`, `avg_speed_kmh`, `density_veh_per_km`, `flow_veh_per_h` |
-| `logs/traffic_cars_<ts>.parquet` | `time_s`, `car_id`, `lane`, `position_m`, `speed_kmh`, `accel_ms2` |
+| `logs/traffic_aggregate_<ts>.parquet` | `time_s`, `car_count`, `avg_speed_kmh`, `density_veh_per_km`, `flow_veh_per_h`, `onramp_rate`, `offramp_prob` |
+| `logs/traffic_cars_<ts>.parquet` | `time_s`, `car_id`, `lane`, `position_m`, `speed_kmh`, `accel_ms2` (`--record-cars` only) |
+| `logs/traffic_meta_<ts>.json` | CLI args + full config snapshot for the run |
+
+`onramp_rate` and `offramp_prob` are sampled live — if the dynamic controller is active they reflect the actual values at each moment, not just the config defaults.
 
 The `logs/` directory is git-ignored.
 
-```python
-import polars as pl
+### Analysis notebook
 
-agg  = pl.read_parquet("logs/traffic_aggregate_*.parquet")
-cars = pl.read_parquet("logs/traffic_cars_*.parquet")
+An interactive Jupyter notebook lives in `notebook/analysis.ipynb` (also git-ignored):
 
-# Fundamental diagram (speed vs density)
-agg.select(["density_veh_per_km", "avg_speed_kmh", "flow_veh_per_h"])
-
-# Space-time diagram for one car
-cars.filter(pl.col("car_id") == 5).sort("time_s")
-
-# Average speed per lane over time
-cars.group_by(["time_s", "lane"]).agg(pl.col("speed_kmh").mean())
+```bash
+uv run jupyter lab notebook/analysis.ipynb
 ```
+
+Charts included: speed & car count over time (per-lane bands), ramp control signals, fundamental diagram, speed distribution by lane, space–time diagram (all lanes), car lifetime table.
 
 ## Project structure
 
@@ -183,4 +186,5 @@ uv run pytest tests/ -q        # run all tests
 uv run traffic-sim --cars 80   # dense traffic to see jams and ramp queue
 ```
 
-Dependencies: `pygame`, `numpy`, `polars` — all managed by `uv` (Python 3.13).
+Runtime dependencies: `pygame`, `numpy`, `polars` — all managed by `uv` (Python 3.13).
+Dev dependencies (notebook): `jupyter`, `matplotlib`, `plotly`, `pandas`, `pyarrow`, `anywidget`.
