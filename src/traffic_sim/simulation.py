@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import colorsys
-import math
 import random
+
+import numpy as np
 
 from .car import Car
 from .config import SimConfig
@@ -10,13 +11,8 @@ from .road import LARGE_GAP, Ramp, Road
 
 
 def _poisson_sample(lam: float) -> int:
-    """Sample from Poisson(lam) using the Knuth algorithm. Correct for integer λ ≤ ~20."""
-    L = math.exp(-lam)
-    k, p = 0, 1.0
-    while p > L:
-        k += 1
-        p *= random.random()
-    return k - 1
+    """Sample from Poisson(lam). numpy is a runtime dep so this is always available."""
+    return np.random.poisson(lam)
 
 
 class Simulation:

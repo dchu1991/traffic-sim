@@ -10,10 +10,11 @@ A freeway traffic simulator built in Python with real-time pygame visualization.
 - **Per-lane speed limits** — default 130 / 110 / 90 km/h; enforced via IDM effective target speed
 - **On-ramp queue** — cars wait in a separate ramp lane and merge when a safe gap opens; the merge window is highlighted with dashed lines and a tinted background
 - **Zipper merge** — when the rightmost lane slows below a configurable threshold, the gap requirement is relaxed (~1 car length) so the queue can drain even in stop-and-go traffic
-- **Off-ramp** — removes passing cars probabilistically
+- **Off-ramp** — removes passing cars probabilistically (classic) or after a set number of laps (destination mode)
 - **Cooperative yielding** — road cars near the ramp tip shorten their gap to the ramp car, helping it slot in
 - **Behaviour config** — all driving parameters live in `config.toml`; no code changes needed
 - **Dynamic ramp control** — optional proportional controller holds a target car count by adjusting `onramp_rate` and `offramp_prob` in real time (`target_cars` in `[ramp]`)
+- **Destination exits** — each car is assigned a random number of laps (`min_loops + Poisson(λ)`) and only exits at the off-ramp after completing them; the car commits to the rightmost lane early via a configurable lookahead distance (`[destination]` in `config.toml`)
 - **Data recording** — optional Parquet export of aggregate stats, per-car trajectories, and a JSON metadata sidecar; interactive analysis notebook included
 - **pygame HUD** — live speed, car count, density bar, per-lane speed limits; pause/speed controls
 
@@ -90,7 +91,7 @@ duration_s       = 1.2   # visual lane-change animation duration (cosmetic)
 onramp_position  = 0.10  # fraction of road length
 offramp_position = 0.80
 onramp_rate      = 0.5   # new cars spawned per second (0 = disabled)
-offramp_prob     = 0.3   # probability a passing car takes the off-ramp
+offramp_prob     = 0.3   # probability a passing car takes the off-ramp (ignored in destination mode)
 min_gap_m        = 30.0  # safety gap (m) required in front and behind to merge
 merge_window_m   = 100.0 # how far back from the ramp tip a car may attempt to merge
 zipper_speed_kmh = 30.0  # rightmost lane avg speed below which zipper merge activates
@@ -108,6 +109,13 @@ time_headway_mean =  2.0  # s (tighter = more unstable traffic)
 
 [trucks]
 desired_v_mean_ms = 22.0  # ~80 km/h
+
+[destination]
+# When enabled, each car drives a set number of laps before exiting (offramp_prob is ignored).
+enabled          = false
+min_loops        = 5       # every car completes at least this many laps
+loops_lambda     = 3.0     # Poisson(λ) extra laps; mean destination = min_loops + λ
+exit_lookahead_m = 300.0   # metres before off-ramp where car commits to rightmost lane
 ```
 
 Key tuning knobs:
@@ -121,6 +129,8 @@ Key tuning knobs:
 | Busier ramp | raise `onramp_rate` |
 | More zipper merging | raise `zipper_speed_kmh` |
 | Hold a steady car count | set `target_cars` (enables proportional controller) |
+| Destination-based exits | `enabled = true` in `[destination]` |
+| Adjust exit lap spread | `min_loops` (floor) + `loops_lambda` (Poisson mean) |
 
 ## On-ramp queue & merge logic
 
@@ -145,7 +155,7 @@ When `--record` is passed, three files are written to `logs/` on exit:
 | File | Contents |
 |------|---------|
 | `logs/traffic_aggregate_<ts>.parquet` | `time_s`, `car_count`, `avg_speed_kmh`, `density_veh_per_km`, `flow_veh_per_h`, `onramp_rate`, `offramp_prob` |
-| `logs/traffic_cars_<ts>.parquet` | `time_s`, `car_id`, `lane`, `position_m`, `speed_kmh`, `accel_ms2` (`--record-cars` only) |
+| `logs/traffic_cars_<ts>.parquet` | `time_s`, `car_id`, `lane`, `position_m`, `speed_kmh`, `accel_ms2`, `laps_completed`, `destination_laps` (`--record-cars` only) |
 | `logs/traffic_meta_<ts>.json` | CLI args + full config snapshot for the run |
 
 `onramp_rate` and `offramp_prob` are sampled live — if the dynamic controller is active they reflect the actual values at each moment, not just the config defaults.
@@ -160,22 +170,24 @@ An interactive Jupyter notebook lives in `notebook/analysis.ipynb` (also git-ign
 uv run jupyter lab notebook/analysis.ipynb
 ```
 
-Charts included: speed & car count over time (per-lane bands), ramp control signals, fundamental diagram, speed distribution by lane, space–time diagram (all lanes), car lifetime table.
+Charts included: speed & car count over time (per-lane bands), ramp control signals, fundamental diagram, speed distribution by lane, space–time diagram (all lanes), car lifetime table, destination lap distribution (destination mode only).
 
 ## Project structure
 
 ```
 config.toml             # behaviour config (edit to tune without code changes)
 src/traffic_sim/
-├── config.py       # SimConfig dataclass + TOML loader
+├── config.py       # SimConfig dataclass + TOML loader (incl. DestinationConfig)
 ├── car.py          # Car dataclass + IDM acceleration model
 ├── road.py         # Road (lanes + ramps + per-lane speed limits) + gap helpers
-├── simulation.py   # Orchestrates IDM, lane changes, ramp queue, zipper merge
+├── simulation.py   # Orchestrates IDM, lane changes, ramp queue, zipper merge, destination exits
 ├── recorder.py     # Polars-backed data sampler + Parquet writer
 ├── visualizer.py   # pygame renderer + merge window visuals + HUD
 └── main.py         # CLI entry point (argparse)
 tests/
-└── test_simulation.py  # ~70 unit tests
+└── test_simulation.py  # unit tests (car, road, config, simulation, destination mode)
+docs/
+└── destination-exits.md  # design notes for destination-based exit behaviour
 ```
 
 ## Development
