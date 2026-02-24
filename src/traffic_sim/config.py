@@ -102,7 +102,7 @@ class SimConfig:
         if len(limits_kmh) >= num_lanes:
             return [v / 3.6 for v in limits_kmh[:num_lanes]]
         # Extend by repeating the slowest limit for any extra lanes
-        base, step = limits_kmh[0], (limits_kmh[0] - limits_kmh[-1]) / max(len(limits_kmh) - 1, 1)
+        _base, step = limits_kmh[0], (limits_kmh[0] - limits_kmh[-1]) / max(len(limits_kmh) - 1, 1)
         extended = list(limits_kmh)
         while len(extended) < num_lanes:
             extended.append(extended[-1] - step)
