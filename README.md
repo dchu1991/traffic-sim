@@ -6,7 +6,7 @@ A freeway traffic simulator built in Python with real-time pygame visualization.
 
 - **IDM car-following** — each car has randomised `desired_velocity`, `time_headway`, `min_gap`, and `max_accel`; heterogeneity produces phantom traffic jams naturally
 - **Trucks** — longer, slower vehicles that act as bottlenecks
-- **Lane changes** — safety + incentive check (MOBIL-lite), smooth animated transitions; keep-right rule enforced when the fast lane is clear
+- **Lane changes** — full MOBIL criterion for overtaking (acceleration gain across self + new/old follower, configurable politeness factor `p`), smooth animated transitions; keep-right rule enforced when the fast lane is clear
 - **Per-lane speed limits** — default 130 / 110 / 90 km/h; enforced via IDM effective target speed
 - **On-ramp queue** — cars wait in a separate ramp lane and merge when a safe gap opens; the merge window is highlighted with dashed lines and a tinted background
 - **Zipper merge** — when the rightmost lane slows below a configurable threshold, the gap requirement is relaxed (~1 car length) so the queue can drain even in stop-and-go traffic
@@ -81,11 +81,12 @@ All driving parameters are in `config.toml`. Edit it to tune behaviour without t
 lane_speed_limits_kmh = [130, 110, 90]
 
 [lane_change]
-cooldown_s       = 3.0   # minimum seconds between lane changes per car
-incentive_m      = 8.0   # gap improvement (m) required to move LEFT (overtake)
-safety_gap_m     = 6.0   # minimum gap (m) behind in target lane
-keep_right_gap_m = 25.0  # gap (m) needed to merge RIGHT without incentive; 0 = disabled
-duration_s       = 1.2   # visual lane-change animation duration (cosmetic)
+cooldown_s            = 3.0   # minimum seconds between lane changes per car
+safety_gap_m          = 6.0   # minimum gap (m) behind in target lane (hard floor)
+keep_right_gap_m      = 25.0  # gap (m) needed to merge RIGHT; 0 = disabled
+duration_s            = 1.2   # visual lane-change animation duration (cosmetic)
+politeness            = 0.0   # MOBIL p: 0 = selfish, 0.3 = polite, 1 = altruistic
+delta_a_threshold_ms2 = 0.2   # m/s² gain required to overtake LEFT (replaces incentive_m)
 
 [ramp]
 onramp_position  = 0.10  # fraction of road length
@@ -124,7 +125,8 @@ Key tuning knobs:
 |------|-----------|
 | More / fewer jams | `--cars`, or `time_headway_mean` |
 | Higher speed limit | `lane_speed_limits_kmh` |
-| Aggressive overtaking | lower `incentive_m` |
+| Aggressive overtaking | lower `delta_a_threshold_ms2` (even negative) |
+| Reduce weaving / polite merges | raise `politeness` to 0.3–0.5 |
 | Disable keep-right | `keep_right_gap_m = 0` |
 | Busier ramp | raise `onramp_rate` |
 | More zipper merging | raise `zipper_speed_kmh` |
@@ -187,6 +189,8 @@ src/traffic_sim/
 tests/
 └── test_simulation.py  # unit tests (car, road, config, simulation, destination mode)
 docs/
+├── idm-model.md          # IDM equations, alternative models, citations
+├── mobil-lane-change.md  # MOBIL criterion, politeness factor, implementation notes
 └── destination-exits.md  # design notes for destination-based exit behaviour
 ```
 

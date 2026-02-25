@@ -46,12 +46,14 @@ src/traffic_sim/
 - IDM uses `min(desired_velocity, lane_speed_limit)` as effective target speed
 - Change via `config.toml`: `lane_speed_limits_kmh = [160, 130, 100]` for autobahn-style
 
-**Lane changes** — MOBIL-inspired + keep-right rule in `simulation.py:_try_lane_change()`:
-- Move LEFT (overtake): gap ahead must improve ≥ `incentive_m` (default 8 m)
-- Move RIGHT (keep-right): gap ahead ≥ `keep_right_gap_m` (default 25 m); set to 0 to disable
-- Safety: gap behind in target lane ≥ `safety_gap_m` (default 6 m)
+**Lane changes** — full MOBIL + keep-right rule in `simulation.py:_try_lane_change()`:
+- Move LEFT (overtake): full MOBIL criterion — `(ã_self - a_self) + p * (follower_deltas) > delta_a_threshold_ms2`; uses `road.find_lane_neighbors()` to get car objects for IDM re-evaluation
+- Move RIGHT (keep-right): gap-based — gap ahead ≥ `keep_right_gap_m` (default 25 m); set to 0 to disable
+- Safety (both): gap behind in target lane ≥ `safety_gap_m` (default 6 m) — hard floor, always checked
 - Cooldown: `cooldown_s` (default 3 s) between changes
 - Visual transition: smoothstep interpolation over `duration_s` (1.2 s), `_lane_transitions` dict
+- `incentive_m` is deprecated for left moves (still in config for backward compat, ignored)
+- See `docs/mobil-lane-change.md` for full criterion, gap formulas, and tuning guide
 
 **Circular road** — positions are `% road_length`; `road.py:find_leader()` handles wraparound correctly
 
@@ -96,7 +98,8 @@ src/traffic_sim/
 - **All behaviour params**: edit `config.toml` — no code changes needed
 - **Fast lane / speed limits**: `lane_speed_limits_kmh` in `[road]`
 - **Keep-right aggressiveness**: `keep_right_gap_m` in `[lane_change]` (0 = disabled)
-- **Overtaking threshold**: `incentive_m` in `[lane_change]`
+- **Overtaking threshold**: `delta_a_threshold_ms2` in `[lane_change]` (lower = more aggressive; negative = willing to move at slight cost)
+- **Overtaking politeness**: `politeness` in `[lane_change]` (0 = selfish, 0.3–0.5 = realistic, 1 = altruistic)
 - **Traffic density**: `--cars` or `onramp_rate` in `[ramp]`
 - **Steady car count**: set `target_cars` in `[ramp]`; tune with `onramp_control_gain` / `offramp_control_gain`
 - **Merge aggressiveness**: `merge_window_m` (wider = earlier), `min_gap_m` (normal), `zipper_gap_m` (congested), `zipper_speed_kmh` (threshold)

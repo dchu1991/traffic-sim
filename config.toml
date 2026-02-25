@@ -10,11 +10,13 @@
 lane_speed_limits_kmh = [130, 110, 90]
 
 [lane_change]
-cooldown_s       = 3.0   # minimum seconds between lane changes per car
-incentive_m      = 8.0   # gap improvement (m) required to move LEFT (overtake)
-safety_gap_m     = 6.0   # minimum gap (m) behind in target lane
-keep_right_gap_m = 25.0  # gap (m) needed to merge RIGHT without incentive; 0 = disabled
-duration_s       = 1.2   # visual lane-change animation duration (seconds, cosmetic only)
+cooldown_s            = 3.0   # minimum seconds between lane changes per car
+incentive_m           = 8.0   # deprecated: no longer used for left moves; see delta_a_threshold_ms2
+safety_gap_m          = 6.0   # minimum gap (m) behind in target lane
+keep_right_gap_m      = 25.0  # gap (m) needed to merge RIGHT without incentive; 0 = disabled
+duration_s            = 1.2   # visual lane-change animation duration (seconds, cosmetic only)
+politeness            = 0.0   # MOBIL p factor: 0 = selfish, 0.3 = polite, 1 = altruistic
+delta_a_threshold_ms2 = 0.2   # acceleration gain (m/s²) required to overtake (left moves)
 
 [ramp]
 # Positions are fractions of road length (0.0 = start, 1.0 = end)

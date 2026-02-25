@@ -71,28 +71,38 @@ class Road:
 
         return max(0.0, gap), leader.velocity
 
-    def find_gap_in_lane(self, car: Car, target_lane: int) -> tuple[float, float]:
-        """Return (gap_ahead, gap_behind) if car were in target_lane at its current position."""
-        lane_cars = self.sorted_lane(target_lane)
-        if not lane_cars:
-            return LARGE_GAP, LARGE_GAP
+    def find_lane_neighbors(
+        self, car: Car, lane: int
+    ) -> tuple[Car | None, Car | None, float, float]:
+        """Return (leader, follower, gap_ahead, gap_behind) as if car were in `lane`.
 
-        ahead = [c for c in lane_cars if c.position > car.position]
-        behind = [c for c in lane_cars if c.position <= car.position]
+        `car` is excluded from the search so this is safe to call with lane == car.lane.
+        leader / follower are None when the lane has no other cars in that direction.
+        """
+        others = [c for c in self.sorted_lane(lane) if c is not car]
+        if not others:
+            return None, None, LARGE_GAP, LARGE_GAP
+
+        ahead  = [c for c in others if c.position > car.position]
+        behind = [c for c in others if c.position <= car.position]
 
         if ahead:
-            gap_ahead = ahead[0].position - car.position - ahead[0].length
+            leader   = ahead[0]
+            gap_ahead = leader.position - car.position - leader.length
         else:
-            # wrap-around
-            leader = lane_cars[0]
+            leader   = others[0]   # wrap-around: smallest position
             gap_ahead = (self.length - car.position) + leader.position - leader.length
 
         if behind:
-            follower = behind[-1]
+            follower   = behind[-1]
             gap_behind = car.position - follower.position - car.length
         else:
-            # wrap-around
-            follower = lane_cars[-1]
+            follower   = others[-1]  # wrap-around: largest position
             gap_behind = (car.position + self.length - follower.position) - car.length
 
-        return max(0.0, gap_ahead), max(0.0, gap_behind)
+        return leader, follower, max(0.0, gap_ahead), max(0.0, gap_behind)
+
+    def find_gap_in_lane(self, car: Car, target_lane: int) -> tuple[float, float]:
+        """Return (gap_ahead, gap_behind) if car were in target_lane at its current position."""
+        _, _, gap_ahead, gap_behind = self.find_lane_neighbors(car, target_lane)
+        return gap_ahead, gap_behind

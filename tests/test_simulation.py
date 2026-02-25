@@ -377,6 +377,123 @@ class TestTryLaneChange:
         assert car.lane == 1   # blocked by unsafe gap
 
 
+# ── MOBIL politeness term ─────────────────────────────────────────────────────
+
+class TestMOBILPoliteness:
+    """Left-move criterion: full MOBIL with configurable politeness factor."""
+
+    def _make_sim(self, politeness: float, threshold: float = 0.2) -> Simulation:
+        cfg = SimConfig()
+        cfg.lane_change.politeness = politeness
+        cfg.lane_change.delta_a_threshold_ms2 = threshold
+        cfg.lane_change.safety_gap_m = 6.0
+        cfg.lane_change.keep_right_gap_m = 0.0   # disable keep-right so it doesn't fire first
+        return make_sim(cfg=cfg)
+
+    def test_selfish_overtake_triggers_on_own_gain(self):
+        """p=0: car overtakes when its own acceleration gain exceeds threshold."""
+        sim = self._make_sim(politeness=0.0)
+
+        car = make_car(car_id=0, lane=1, position=500.0, velocity=20.0,
+                       desired_velocity=30.0, length=5.0)
+        car.lane_change_timer = 0.0
+        slow_leader = make_car(car_id=1, lane=1, position=530.0, velocity=5.0, length=5.0)
+        sim.cars.extend([car, slow_leader])
+        sim.road.add_car(car)
+        sim.road.add_car(slow_leader)
+
+        sim._try_lane_change(car)
+        assert car.lane == 0   # gain >> threshold → moved left
+
+    def test_politeness_blocks_overtake_when_new_follower_brakes_hard(self):
+        """p=0.5: cut-in forcing the new follower into heavy braking is blocked.
+
+        Setup: car in lane 1 has gap=20 to a same-speed leader (Δv=0, s*=32 > gap
+        → heavy braking ~-2.6 m/s²). Lane 0 has a larger gap=60 → free-ish flow.
+        Self-gain ≈ 3.4 m/s². New follower cut-in gap=10 → delta_nf ≈ -15.1 m/s².
+        Total MOBIL gain ≈ 3.4 + 0.5 * (-15.1) ≈ -4.1 < threshold → blocked.
+        """
+        sim = self._make_sim(politeness=0.5)
+
+        car          = make_car(car_id=0, lane=1, position=500.0, velocity=20.0,
+                                desired_velocity=30.0, length=5.0)
+        car.lane_change_timer = 0.0
+        lane1_leader = make_car(car_id=1, lane=1, position=525.0, velocity=20.0, length=5.0)
+        lane0_leader = make_car(car_id=2, lane=0, position=565.0, velocity=20.0, length=5.0)
+        new_follower = make_car(car_id=3, lane=0, position=485.0, velocity=20.0,
+                                desired_velocity=30.0, length=5.0)
+        # gap_behind = 500 - 485 - 5 = 10 m (passes safety check of 6 m)
+        for c in [car, lane1_leader, lane0_leader, new_follower]:
+            sim.cars.append(c)
+            sim.road.add_car(c)
+
+        sim._try_lane_change(car)
+        assert car.lane == 1   # blocked by politeness
+
+    def test_selfish_allows_same_overtake_despite_close_follower(self):
+        """p=0: identical setup to above, car ignores follower braking and overtakes.
+
+        Self-gain ≈ 3.4 m/s² >> threshold=0.2, follower penalty ignored → moves.
+        """
+        sim = self._make_sim(politeness=0.0)
+
+        car          = make_car(car_id=0, lane=1, position=500.0, velocity=20.0,
+                                desired_velocity=30.0, length=5.0)
+        car.lane_change_timer = 0.0
+        lane1_leader = make_car(car_id=1, lane=1, position=525.0, velocity=20.0, length=5.0)
+        lane0_leader = make_car(car_id=2, lane=0, position=565.0, velocity=20.0, length=5.0)
+        new_follower = make_car(car_id=3, lane=0, position=485.0, velocity=20.0,
+                                desired_velocity=30.0, length=5.0)
+        for c in [car, lane1_leader, lane0_leader, new_follower]:
+            sim.cars.append(c)
+            sim.road.add_car(c)
+
+        sim._try_lane_change(car)
+        assert car.lane == 0   # p=0 → self-gain dominates → moves left
+
+    def test_old_follower_benefit_enables_altruistic_move(self):
+        """p=0.5: benefit to closely-tailgating old follower enables a move the car
+        would not otherwise make (self-gain is barely negative).
+
+        Setup: car in lane 1 has a free road (no leader → free flow).
+        Lane 0 has a faster leader (vel=25) at gap=55 → self-gain ≈ -0.005 m/s².
+        Old follower tailgating at gap=25 gains ~2.46 m/s² when car departs.
+        Total gain ≈ -0.005 + 0.5 * 2.46 ≈ +1.22 > threshold → moves.
+        """
+        sim = self._make_sim(politeness=0.5)
+
+        car          = make_car(car_id=0, lane=1, position=500.0, velocity=20.0,
+                                desired_velocity=30.0, length=5.0)
+        car.lane_change_timer = 0.0
+        old_follower = make_car(car_id=1, lane=1, position=470.0, velocity=20.0,
+                                desired_velocity=30.0, length=5.0)
+        lane0_leader = make_car(car_id=2, lane=0, position=560.0, velocity=25.0, length=5.0)
+        # old-follower gap = 500 - 470 - 5 = 25 m (tailgating → strong benefit from car leaving)
+        for c in [car, old_follower, lane0_leader]:
+            sim.cars.append(c)
+            sim.road.add_car(c)
+
+        sim._try_lane_change(car)
+        assert car.lane == 0   # altruistic move enabled by old follower's gain
+
+    def test_selfish_blocks_same_altruistic_move(self):
+        """p=0: identical setup — self-gain is negative → car stays put."""
+        sim = self._make_sim(politeness=0.0)
+
+        car          = make_car(car_id=0, lane=1, position=500.0, velocity=20.0,
+                                desired_velocity=30.0, length=5.0)
+        car.lane_change_timer = 0.0
+        old_follower = make_car(car_id=1, lane=1, position=470.0, velocity=20.0,
+                                desired_velocity=30.0, length=5.0)
+        lane0_leader = make_car(car_id=2, lane=0, position=560.0, velocity=25.0, length=5.0)
+        for c in [car, old_follower, lane0_leader]:
+            sim.cars.append(c)
+            sim.road.add_car(c)
+
+        sim._try_lane_change(car)
+        assert car.lane == 1   # self-gain < threshold → stays
+
+
 # ── Full-step integration ─────────────────────────────────────────────────────
 
 class TestStep:
