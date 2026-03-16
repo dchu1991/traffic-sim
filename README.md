@@ -172,7 +172,7 @@ An interactive Jupyter notebook lives in `notebook/analysis.ipynb` (also git-ign
 uv run jupyter lab notebook/analysis.ipynb
 ```
 
-Charts included: speed & car count over time (per-lane bands), ramp control signals, fundamental diagram, speed distribution by lane, space–time diagram (all lanes), car lifetime table, destination lap distribution (destination mode only).
+Charts included: speed & car count over time (per-lane bands), ramp control signals, fundamental diagram, speed distribution by lane, space–time diagram (all lanes, custom traffic colorscale), car lifetime table, travel time histogram + violin by destination laps, TTC histogram / near-miss rate / mean TTC by lane, destination lap distribution (destination mode only).
 
 ## Project structure
 
@@ -189,9 +189,10 @@ src/traffic_sim/
 tests/
 └── test_simulation.py  # unit tests (car, road, config, simulation, destination mode)
 docs/
-├── idm-model.md          # IDM equations, alternative models, citations
-├── mobil-lane-change.md  # MOBIL criterion, politeness factor, implementation notes
-└── destination-exits.md  # design notes for destination-based exit behaviour
+├── idm-model.md            # IDM equations, alternative car-following models, citations
+├── mobil-lane-change.md    # MOBIL criterion, politeness factor, implementation notes
+├── lane-change-models.md   # survey of lane-change models (Gipps, Ahmed, MOBIL, Lmrs, RSS, Toledo)
+└── destination-exits.md    # design notes for destination-based exit behaviour
 ```
 
 ## Development

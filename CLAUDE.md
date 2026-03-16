@@ -115,8 +115,10 @@ src/traffic_sim/
 - Location: `notebook/analysis.ipynb` (git-ignored via `notebook/` in `.gitignore`)
 - Launch: `uv run jupyter lab notebook/analysis.ipynb`
 - Loads most recent `logs/traffic_aggregate_<ts>.parquet` + matching `traffic_cars_<ts>.parquet` and `traffic_meta_<ts>.json` automatically
-- Charts: speed + car count (per-lane ±std bands), ramp control signals (`onramp_rate` / `offramp_prob`), fundamental diagram, speed distribution by lane, space–time diagram (all lanes, custom traffic colorscale), car lifetime table, destination lap distribution (destination mode only)
+- Charts: speed + car count (per-lane ±std bands), ramp control signals (`onramp_rate` / `offramp_prob`), fundamental diagram, speed distribution by lane, space–time diagram (all lanes, custom traffic colorscale), car lifetime table, travel time histogram + violin by destination laps, TTC histogram / near-miss rate / mean TTC by lane, destination lap distribution (destination mode only)
 - Entry/exit derived from trajectory data (`first/last appearance of car_id`); accurate to ±1 sample interval
+- Travel time section: histogram of `lifetime_s` + violin plot of `lifetime_s` by `destination_laps` (x-axis sorted numerically via `category_orders`; box + jittered points overlay)
+- TTC section: histogram by lane (log Y, 1.5 s / 4 s thresholds), near-miss rate vs car count (30-sample rolling mean), mean TTC by lane over time
 - Destination section: histogram of assigned `destination_laps` + scatter of assigned vs actual — points above the diagonal = cars that missed an exit and retried (expected)
 
 ## Python / tooling
