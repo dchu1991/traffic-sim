@@ -7,10 +7,12 @@ from dataclasses import dataclass, field
 @dataclass
 class LaneChangeConfig:
     cooldown_s: float = 3.0       # minimum seconds between lane changes
-    incentive_m: float = 8.0      # gap improvement required to move LEFT (overtake)
+    incentive_m: float = 8.0      # deprecated: replaced by delta_a_threshold_ms2 for left moves
     safety_gap_m: float = 6.0     # minimum gap behind in target lane
     keep_right_gap_m: float = 25.0  # gap needed to merge RIGHT; 0 = disabled
     duration_s: float = 1.2       # visual transition duration (cosmetic)
+    politeness: float = 0.0       # MOBIL p factor: 0 = selfish, ~0.3 = typical, 1 = altruistic
+    delta_a_threshold_ms2: float = 0.2  # acceleration gain (m/s²) required to overtake (left moves)
 
 
 @dataclass
@@ -54,6 +56,14 @@ class TruckSpawnConfig:
 
 
 @dataclass
+class DestinationConfig:
+    enabled: bool = False           # False = classic probabilistic offramp_prob behavior
+    min_loops: int = 5              # every car completes at least this many laps
+    loops_lambda: float = 3.0       # Poisson(λ) extra laps; mean destination = min_loops + λ
+    exit_lookahead_m: float = 300.0  # metres before off-ramp where car commits to right lane
+
+
+@dataclass
 class SimConfig:
     # Speed limits in km/h, index 0 = leftmost (fast) lane
     lane_speed_limits_kmh: list[float] = field(
@@ -63,6 +73,7 @@ class SimConfig:
     ramp: RampConfig = field(default_factory=RampConfig)
     cars: CarSpawnConfig = field(default_factory=CarSpawnConfig)
     trucks: TruckSpawnConfig = field(default_factory=TruckSpawnConfig)
+    destination: DestinationConfig = field(default_factory=DestinationConfig)
 
     # ------------------------------------------------------------------
 
@@ -83,6 +94,8 @@ class SimConfig:
             cfg.cars = CarSpawnConfig(**data["cars"])
         if "trucks" in data:
             cfg.trucks = TruckSpawnConfig(**data["trucks"])
+        if "destination" in data:
+            cfg.destination = DestinationConfig(**data["destination"])
         return cfg
 
     def speed_limits_ms(self, num_lanes: int) -> list[float]:
@@ -91,7 +104,7 @@ class SimConfig:
         if len(limits_kmh) >= num_lanes:
             return [v / 3.6 for v in limits_kmh[:num_lanes]]
         # Extend by repeating the slowest limit for any extra lanes
-        base, step = limits_kmh[0], (limits_kmh[0] - limits_kmh[-1]) / max(len(limits_kmh) - 1, 1)
+        _base, step = limits_kmh[0], (limits_kmh[0] - limits_kmh[-1]) / max(len(limits_kmh) - 1, 1)
         extended = list(limits_kmh)
         while len(extended) < num_lanes:
             extended.append(extended[-1] - step)

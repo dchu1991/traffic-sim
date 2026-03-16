@@ -32,7 +32,7 @@ src/traffic_sim/
 **Config system** — `config.py` / `config.toml`:
 - `SimConfig` dataclass loaded via `SimConfig.from_toml(path)`
 - `main.py` auto-reads `config.toml` if present; override with `--config`
-- Sections: `[road]`, `[lane_change]`, `[ramp]`, `[cars]`, `[trucks]`
+- Sections: `[road]`, `[lane_change]`, `[ramp]`, `[cars]`, `[trucks]`, `[destination]`
 - Any section/key can be omitted — built-in defaults apply
 
 **IDM (Intelligent Driver Model)** — physics-based car-following in `car.py`:
@@ -46,12 +46,14 @@ src/traffic_sim/
 - IDM uses `min(desired_velocity, lane_speed_limit)` as effective target speed
 - Change via `config.toml`: `lane_speed_limits_kmh = [160, 130, 100]` for autobahn-style
 
-**Lane changes** — MOBIL-inspired + keep-right rule in `simulation.py:_try_lane_change()`:
-- Move LEFT (overtake): gap ahead must improve ≥ `incentive_m` (default 8 m)
-- Move RIGHT (keep-right): gap ahead ≥ `keep_right_gap_m` (default 25 m); set to 0 to disable
-- Safety: gap behind in target lane ≥ `safety_gap_m` (default 6 m)
+**Lane changes** — full MOBIL + keep-right rule in `simulation.py:_try_lane_change()`:
+- Move LEFT (overtake): full MOBIL criterion — `(ã_self - a_self) + p * (follower_deltas) > delta_a_threshold_ms2`; uses `road.find_lane_neighbors()` to get car objects for IDM re-evaluation
+- Move RIGHT (keep-right): gap-based — gap ahead ≥ `keep_right_gap_m` (default 25 m); set to 0 to disable
+- Safety (both): gap behind in target lane ≥ `safety_gap_m` (default 6 m) — hard floor, always checked
 - Cooldown: `cooldown_s` (default 3 s) between changes
 - Visual transition: smoothstep interpolation over `duration_s` (1.2 s), `_lane_transitions` dict
+- `incentive_m` is deprecated for left moves (still in config for backward compat, ignored)
+- See `docs/mobil-lane-change.md` for full criterion, gap formulas, and tuning guide
 
 **Circular road** — positions are `% road_length`; `road.py:find_leader()` handles wraparound correctly
 
@@ -66,6 +68,17 @@ src/traffic_sim/
 - Merge window is highlighted in visualizer with a green tint + dashed top edge and start marker
 - **Dynamic ramp control**: `_update_ramp_control()` in `simulation.py` — proportional controller adjusts both `ramp.rate` (on-ramp) and `ramp.rate` (off-ramp prob) to drive `car_count → target_cars`; gains set by `onramp_control_gain` / `offramp_control_gain`; disabled when `target_cars = 0`
 
+**Destination exits** — `config.toml [destination]` + `simulation.py`:
+- Each car is assigned `destination_laps = min_loops + Poisson(λ)` at spawn; exits after that many laps
+- `offramp_prob` is ignored in destination mode (exits are deterministic per-car)
+- `car.exiting = True` is set within `exit_lookahead_m` of the off-ramp on the final lap (`_update_exiting_flags`, called every step before lane changes)
+- Exiting cars skip leftward moves and bypass `keep_right_gap` to prioritise reaching the rightmost lane
+- The safety-gap check still applies — if blocked, the car misses the exit and retries next lap (intentional; see `docs/destination-exits.md`)
+- `_passed_ramps` is cleared on each lap wrap so the off-ramp is re-evaluated every lap
+- In destination mode, `_update_ramp_control` skips `offramp_prob` adjustment; only `onramp_rate` is controlled
+- `laps_completed` and `destination_laps` recorded in trajectory Parquet; HUD shows avg laps in destination mode
+- Design notes: `docs/destination-exits.md`
+
 **Car rendering** — `visualizer.py:_draw_cars()`:
 - Front bumper = right edge of rect (`Rect(cx - cw, cy - ch//2, cw, ch)`)
 - `CAR_W=16 × CAR_H=10` px for regular cars; `TRUCK_W=26 × TRUCK_H=14` px for trucks (`length > 8 m`)
@@ -76,7 +89,7 @@ src/traffic_sim/
 - Column-oriented `dict[str, list]` buffers, flushed to `pl.DataFrame` on `save()`
 - Output directory: `logs/` (created automatically; git-ignored)
 - Aggregate file: `logs/traffic_aggregate_<ts>.parquet` — `time_s, car_count, avg_speed_kmh, density_veh_per_km, flow_veh_per_h, onramp_rate, offramp_prob`
-- Trajectory file (`--record-cars`): `logs/traffic_cars_<ts>.parquet` — `time_s, car_id, lane, position_m, speed_kmh, accel_ms2`
+- Trajectory file (`--record-cars`): `logs/traffic_cars_<ts>.parquet` — `time_s, car_id, lane, position_m, speed_kmh, accel_ms2, laps_completed, destination_laps`
 - Metadata sidecar: `logs/traffic_meta_<ts>.json` — CLI args + `dataclasses.asdict(cfg)` snapshot; written whenever `metadata` dict is passed to `Recorder`
 - `onramp_rate` and `offramp_prob` are sampled live from `ramp.rate` each tick (reflect controller adjustments when `target_cars > 0`)
 
@@ -85,11 +98,15 @@ src/traffic_sim/
 - **All behaviour params**: edit `config.toml` — no code changes needed
 - **Fast lane / speed limits**: `lane_speed_limits_kmh` in `[road]`
 - **Keep-right aggressiveness**: `keep_right_gap_m` in `[lane_change]` (0 = disabled)
-- **Overtaking threshold**: `incentive_m` in `[lane_change]`
+- **Overtaking threshold**: `delta_a_threshold_ms2` in `[lane_change]` (lower = more aggressive; negative = willing to move at slight cost)
+- **Overtaking politeness**: `politeness` in `[lane_change]` (0 = selfish, 0.3–0.5 = realistic, 1 = altruistic)
 - **Traffic density**: `--cars` or `onramp_rate` in `[ramp]`
 - **Steady car count**: set `target_cars` in `[ramp]`; tune with `onramp_control_gain` / `offramp_control_gain`
 - **Merge aggressiveness**: `merge_window_m` (wider = earlier), `min_gap_m` (normal), `zipper_gap_m` (congested), `zipper_speed_kmh` (threshold)
 - **Driver aggression**: `desired_v_mean_ms`, `time_headway_mean` etc. in `[cars]`
+- **Destination mode on/off**: `enabled` in `[destination]`; when `true`, `offramp_prob` is ignored
+- **Exit lap distribution**: `min_loops` (floor) + `loops_lambda` (Poisson mean extra laps) in `[destination]`
+- **Missed-exit rate**: `exit_lookahead_m` (more = earlier right-lane commit) and `safety_gap_m` (lower = more permissive)
 - Car colour encodes speed: red (0 km/h) → yellow (60 km/h) → green (120+ km/h)
 - Simulation substep count scales with `speed_mult` to keep IDM numerically stable
 
@@ -98,8 +115,11 @@ src/traffic_sim/
 - Location: `notebook/analysis.ipynb` (git-ignored via `notebook/` in `.gitignore`)
 - Launch: `uv run jupyter lab notebook/analysis.ipynb`
 - Loads most recent `logs/traffic_aggregate_<ts>.parquet` + matching `traffic_cars_<ts>.parquet` and `traffic_meta_<ts>.json` automatically
-- Charts: speed + car count (per-lane ±std bands), ramp control signals (`onramp_rate` / `offramp_prob`), fundamental diagram, speed distribution by lane, space–time diagram (all lanes, custom traffic colorscale), car lifetime table
+- Charts: speed + car count (per-lane ±std bands), ramp control signals (`onramp_rate` / `offramp_prob`), fundamental diagram, speed distribution by lane, space–time diagram (all lanes, custom traffic colorscale), car lifetime table, travel time histogram + violin by destination laps, TTC histogram / near-miss rate / mean TTC by lane, destination lap distribution (destination mode only)
 - Entry/exit derived from trajectory data (`first/last appearance of car_id`); accurate to ±1 sample interval
+- Travel time section: histogram of `lifetime_s` + violin plot of `lifetime_s` by `destination_laps` (x-axis sorted numerically via `category_orders`; box + jittered points overlay)
+- TTC section: histogram by lane (log Y, 1.5 s / 4 s thresholds), near-miss rate vs car count (30-sample rolling mean), mean TTC by lane over time
+- Destination section: histogram of assigned `destination_laps` + scatter of assigned vs actual — points above the diagonal = cars that missed an exit and retried (expected)
 
 ## Python / tooling
 
@@ -108,4 +128,4 @@ src/traffic_sim/
 - Dev deps (notebook): `jupyter`, `matplotlib`, `plotly`, `pandas`, `pyarrow`, `anywidget`
 - `tomllib` is stdlib (Python 3.11+) — no extra dep needed for config loading
 - Add packages: `uv add <pkg>`; notebook-only: `uv add --dev <pkg>`
-- Test suite: `uv run pytest tests/` (67 tests across car, road, config, simulation)
+- Test suite: `uv run pytest tests/` (tests across car, road, config, simulation + destination mode)

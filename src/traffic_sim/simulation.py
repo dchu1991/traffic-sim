@@ -3,9 +3,16 @@ from __future__ import annotations
 import colorsys
 import random
 
+import numpy as np
+
 from .car import Car
 from .config import SimConfig
 from .road import LARGE_GAP, Ramp, Road
+
+
+def _poisson_sample(lam: float) -> int:
+    """Sample from Poisson(lam). numpy is a runtime dep so this is always available."""
+    return np.random.poisson(lam)
 
 
 class Simulation:
@@ -21,10 +28,12 @@ class Simulation:
         lc = self.cfg.lane_change
 
         self.lane_change_cooldown = lc.cooldown_s
-        self.lane_change_incentive = lc.incentive_m
+        self.lane_change_incentive = lc.incentive_m  # kept for reference; unused for left moves
         self.safety_gap = lc.safety_gap_m
         self.keep_right_gap = lc.keep_right_gap_m
         self.lane_change_duration = lc.duration_s
+        self.politeness = lc.politeness
+        self.delta_a_threshold = lc.delta_a_threshold_ms2
 
         speed_limits = self.cfg.speed_limits_ms(num_lanes)
         self.road = Road(
@@ -82,7 +91,7 @@ class Simulation:
             color = (int(r * 255), int(g * 255), int(b * 255))
 
         cc = self.cfg.cars
-        return Car(
+        car = Car(
             car_id=car_id,
             lane=lane,
             position=position,
@@ -95,6 +104,10 @@ class Simulation:
             comfortable_decel=max(1.0, min(3.5, random.gauss(cc.comfortable_decel_mean, 0.4))),
             length=length,
         )
+        if self.cfg.destination.enabled:
+            dc = self.cfg.destination
+            car.destination_laps = dc.min_loops + _poisson_sample(dc.loops_lambda)
+        return car
 
     def _spawn_initial_cars(self, num_cars: int, truck_fraction: float) -> None:
         per_lane = num_cars // self.road.num_lanes
@@ -114,7 +127,7 @@ class Simulation:
                 self.road.add_car(car)
 
     # ------------------------------------------------------------------
-    # Lane changing (MOBIL-lite + keep-right)
+    # Lane changing (MOBIL + keep-right)
     # ------------------------------------------------------------------
 
     def _do_lane_change(self, car: Car, target_lane: int) -> None:
@@ -130,34 +143,96 @@ class Simulation:
         if car.lane_change_timer > 0.0:
             return
 
-        current_gap, _ = self.road.find_leader(car)
+        current_gap, current_leader_vel = self.road.find_leader(car)
 
         # Build candidate lanes: left first (overtaking), then right (keep-right)
+        # Exiting cars skip the left candidate — they need to reach the rightmost lane.
         candidates: list[int] = []
-        if car.lane > 0:
+        if car.lane > 0 and not car.exiting:
             candidates.append(car.lane - 1)
         if car.lane < self.road.num_lanes - 1:
             candidates.append(car.lane + 1)
 
         for target_lane in candidates:
-            gap_ahead, gap_behind = self.road.find_gap_in_lane(car, target_lane)
+            target_leader, new_follower, gap_ahead, gap_behind = \
+                self.road.find_lane_neighbors(car, target_lane)
 
             # Safety check (always required)
             if gap_behind < self.safety_gap:
                 continue
 
             if target_lane < car.lane:
-                # Moving LEFT — overtaking: require significant gap improvement
-                if gap_ahead > current_gap + self.lane_change_incentive:
+                # Moving LEFT — MOBIL acceleration-based criterion
+                target_leader_vel = (
+                    target_leader.velocity if target_leader is not None
+                    else car.desired_velocity
+                )
+                cur_v0 = min(car.desired_velocity, self.road.lane_speed_limits[car.lane])
+                tgt_v0 = min(car.desired_velocity, self.road.lane_speed_limits[target_lane])
+
+                a_self_before = car.idm_acceleration(current_gap, current_leader_vel, cur_v0)
+                a_self_after  = car.idm_acceleration(gap_ahead,   target_leader_vel,  tgt_v0)
+                gain = a_self_after - a_self_before
+
+                if self.politeness > 0.0:
+                    # New follower in target lane: braking they must do to accommodate us
+                    if new_follower is not None:
+                        nf_v0 = min(
+                            new_follower.desired_velocity,
+                            self.road.lane_speed_limits[target_lane],
+                        )
+                        nf_gap_before = gap_behind + car.length + gap_ahead
+                        gain += self.politeness * (
+                            new_follower.idm_acceleration(gap_behind,    car.velocity,        nf_v0)
+                            - new_follower.idm_acceleration(nf_gap_before, target_leader_vel, nf_v0)
+                        )
+                    # Old follower in current lane: gap they gain when we depart
+                    _, old_follower, _, old_gap_behind = \
+                        self.road.find_lane_neighbors(car, car.lane)
+                    if old_follower is not None:
+                        of_v0 = min(
+                            old_follower.desired_velocity,
+                            self.road.lane_speed_limits[car.lane],
+                        )
+                        of_gap_after = old_gap_behind + car.length + current_gap
+                        gain += self.politeness * (
+                            old_follower.idm_acceleration(of_gap_after,   current_leader_vel, of_v0)
+                            - old_follower.idm_acceleration(old_gap_behind, car.velocity,     of_v0)
+                        )
+
+                if gain > self.delta_a_threshold:
                     self._do_lane_change(car, target_lane)
                     return
             else:
                 # Moving RIGHT — keep-right: skip if inside a merge zone
                 if self._in_merge_zone(car, target_lane):
                     continue
+                # Exiting cars bypass the keep_right_gap threshold — they must get right
+                if car.exiting:
+                    self._do_lane_change(car, target_lane)
+                    return
                 if self.keep_right_gap > 0 and gap_ahead >= self.keep_right_gap:
                     self._do_lane_change(car, target_lane)
                     return
+
+    def _update_exiting_flags(self) -> None:
+        """In destination mode, mark cars on their final lap as exiting when near the off-ramp.
+
+        Called at the top of step() before lane changes so exiting cars immediately
+        start moving right. _do_lane_change resets exiting=False, so this must re-apply
+        every step.
+        """
+        if not self.cfg.destination.enabled:
+            return
+        lookahead = self.cfg.destination.exit_lookahead_m
+        for ramp in self.road.ramps:
+            if ramp.is_onramp:
+                continue
+            for car in self.cars:
+                if car.destination_laps > 0 and car.laps_completed >= car.destination_laps:
+                    dist_to_ramp = (ramp.position - car.position) % self.road.length
+                    if dist_to_ramp <= lookahead:
+                        car.exiting = True
 
     def _in_merge_zone(self, car: Car, target_lane: int) -> bool:
         """Return True if car is within ramp_length_m upstream of an on-ramp in target_lane."""
@@ -190,6 +265,9 @@ class Simulation:
                 gain = self.cfg.ramp.onramp_control_gain
                 ramp.rate = max(0.0, min(self._onramp_rate_max, ramp.rate - gain * error * dt))
             else:
+                # In destination mode, offramp_prob is unused — only onramp_rate is controlled
+                if self.cfg.destination.enabled:
+                    continue
                 gain = self.cfg.ramp.offramp_control_gain
                 ramp.rate = max(0.0, min(1.0, ramp.rate + gain * error * dt))
 
@@ -197,6 +275,13 @@ class Simulation:
         """Return True if the car should be removed from the simulation."""
         if car.lane != ramp.lane:
             return False
+        if self.cfg.destination.enabled:
+            # Destination mode: exit only when lap target is reached (guaranteed)
+            if ramp.position in car._passed_ramps:
+                return False  # already evaluated this lap
+            car._passed_ramps.add(ramp.position)
+            return car.destination_laps > 0 and car.laps_completed >= car.destination_laps
+        # Classic probabilistic mode
         if random.random() < ramp.rate and ramp.position not in car._passed_ramps:
             car._passed_ramps.add(ramp.position)
             return True
@@ -331,6 +416,9 @@ class Simulation:
     # ------------------------------------------------------------------
 
     def step(self, dt: float) -> None:
+        # 0. Mark exiting cars (destination mode only — no-op otherwise)
+        self._update_exiting_flags()
+
         # 1. Lane changes
         for car in list(self.cars):
             self._try_lane_change(car)
@@ -338,7 +426,9 @@ class Simulation:
         # 2. IDM update — enforce per-lane speed limit
         #    Road cars in the rightmost lane also yield to any ramp lead car waiting to merge
         ramp_length = self.cfg.ramp.ramp_length_m
+        destination_enabled = self.cfg.destination.enabled
         for car in self.cars:
+            old_pos = car.position  # saved for lap detection below
             gap, lead_v = self.road.find_leader(car)
             # Cooperative merge: yield to ramp lead car if it is near the merge point
             for ramp in self.road.ramps:
@@ -359,6 +449,11 @@ class Simulation:
                         lead_v = lead_q.velocity
             limit = self.road.lane_speed_limits[car.lane]
             car.update(dt, gap, lead_v, self.road.length, speed_limit=limit)
+            # Lap detection: position wrapped past 0 → increment lap counter
+            if destination_enabled and car.destination_laps > 0:
+                if old_pos > car.position + self.road.length * 0.5:
+                    car.laps_completed += 1
+                    car._passed_ramps.clear()  # allow exit re-evaluation this lap
 
         # 3. Ramp queue physics + merge
         self._step_ramp_queues(dt)

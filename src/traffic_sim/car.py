@@ -28,6 +28,10 @@ class Car:
     exiting: bool = False           # set when car is committed to an off-ramp
     _passed_ramps: set = field(default_factory=set)
 
+    # Destination tracking (destination mode only; both 0 = classic mode)
+    laps_completed: int = 0    # incremented each time position wraps past position 0
+    destination_laps: int = 0  # car exits only when laps_completed >= this
+
     def idm_acceleration(self, gap: float, lead_velocity: float,
                          effective_v0: float | None = None) -> float:
         """Intelligent Driver Model — returns acceleration given gap to leader.

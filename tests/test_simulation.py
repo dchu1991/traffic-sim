@@ -377,6 +377,123 @@ class TestTryLaneChange:
         assert car.lane == 1   # blocked by unsafe gap
 
 
+# ── MOBIL politeness term ─────────────────────────────────────────────────────
+
+class TestMOBILPoliteness:
+    """Left-move criterion: full MOBIL with configurable politeness factor."""
+
+    def _make_sim(self, politeness: float, threshold: float = 0.2) -> Simulation:
+        cfg = SimConfig()
+        cfg.lane_change.politeness = politeness
+        cfg.lane_change.delta_a_threshold_ms2 = threshold
+        cfg.lane_change.safety_gap_m = 6.0
+        cfg.lane_change.keep_right_gap_m = 0.0   # disable keep-right so it doesn't fire first
+        return make_sim(cfg=cfg)
+
+    def test_selfish_overtake_triggers_on_own_gain(self):
+        """p=0: car overtakes when its own acceleration gain exceeds threshold."""
+        sim = self._make_sim(politeness=0.0)
+
+        car = make_car(car_id=0, lane=1, position=500.0, velocity=20.0,
+                       desired_velocity=30.0, length=5.0)
+        car.lane_change_timer = 0.0
+        slow_leader = make_car(car_id=1, lane=1, position=530.0, velocity=5.0, length=5.0)
+        sim.cars.extend([car, slow_leader])
+        sim.road.add_car(car)
+        sim.road.add_car(slow_leader)
+
+        sim._try_lane_change(car)
+        assert car.lane == 0   # gain >> threshold → moved left
+
+    def test_politeness_blocks_overtake_when_new_follower_brakes_hard(self):
+        """p=0.5: cut-in forcing the new follower into heavy braking is blocked.
+
+        Setup: car in lane 1 has gap=20 to a same-speed leader (Δv=0, s*=32 > gap
+        → heavy braking ~-2.6 m/s²). Lane 0 has a larger gap=60 → free-ish flow.
+        Self-gain ≈ 3.4 m/s². New follower cut-in gap=10 → delta_nf ≈ -15.1 m/s².
+        Total MOBIL gain ≈ 3.4 + 0.5 * (-15.1) ≈ -4.1 < threshold → blocked.
+        """
+        sim = self._make_sim(politeness=0.5)
+
+        car          = make_car(car_id=0, lane=1, position=500.0, velocity=20.0,
+                                desired_velocity=30.0, length=5.0)
+        car.lane_change_timer = 0.0
+        lane1_leader = make_car(car_id=1, lane=1, position=525.0, velocity=20.0, length=5.0)
+        lane0_leader = make_car(car_id=2, lane=0, position=565.0, velocity=20.0, length=5.0)
+        new_follower = make_car(car_id=3, lane=0, position=485.0, velocity=20.0,
+                                desired_velocity=30.0, length=5.0)
+        # gap_behind = 500 - 485 - 5 = 10 m (passes safety check of 6 m)
+        for c in [car, lane1_leader, lane0_leader, new_follower]:
+            sim.cars.append(c)
+            sim.road.add_car(c)
+
+        sim._try_lane_change(car)
+        assert car.lane == 1   # blocked by politeness
+
+    def test_selfish_allows_same_overtake_despite_close_follower(self):
+        """p=0: identical setup to above, car ignores follower braking and overtakes.
+
+        Self-gain ≈ 3.4 m/s² >> threshold=0.2, follower penalty ignored → moves.
+        """
+        sim = self._make_sim(politeness=0.0)
+
+        car          = make_car(car_id=0, lane=1, position=500.0, velocity=20.0,
+                                desired_velocity=30.0, length=5.0)
+        car.lane_change_timer = 0.0
+        lane1_leader = make_car(car_id=1, lane=1, position=525.0, velocity=20.0, length=5.0)
+        lane0_leader = make_car(car_id=2, lane=0, position=565.0, velocity=20.0, length=5.0)
+        new_follower = make_car(car_id=3, lane=0, position=485.0, velocity=20.0,
+                                desired_velocity=30.0, length=5.0)
+        for c in [car, lane1_leader, lane0_leader, new_follower]:
+            sim.cars.append(c)
+            sim.road.add_car(c)
+
+        sim._try_lane_change(car)
+        assert car.lane == 0   # p=0 → self-gain dominates → moves left
+
+    def test_old_follower_benefit_enables_altruistic_move(self):
+        """p=0.5: benefit to closely-tailgating old follower enables a move the car
+        would not otherwise make (self-gain is barely negative).
+
+        Setup: car in lane 1 has a free road (no leader → free flow).
+        Lane 0 has a faster leader (vel=25) at gap=55 → self-gain ≈ -0.005 m/s².
+        Old follower tailgating at gap=25 gains ~2.46 m/s² when car departs.
+        Total gain ≈ -0.005 + 0.5 * 2.46 ≈ +1.22 > threshold → moves.
+        """
+        sim = self._make_sim(politeness=0.5)
+
+        car          = make_car(car_id=0, lane=1, position=500.0, velocity=20.0,
+                                desired_velocity=30.0, length=5.0)
+        car.lane_change_timer = 0.0
+        old_follower = make_car(car_id=1, lane=1, position=470.0, velocity=20.0,
+                                desired_velocity=30.0, length=5.0)
+        lane0_leader = make_car(car_id=2, lane=0, position=560.0, velocity=25.0, length=5.0)
+        # old-follower gap = 500 - 470 - 5 = 25 m (tailgating → strong benefit from car leaving)
+        for c in [car, old_follower, lane0_leader]:
+            sim.cars.append(c)
+            sim.road.add_car(c)
+
+        sim._try_lane_change(car)
+        assert car.lane == 0   # altruistic move enabled by old follower's gain
+
+    def test_selfish_blocks_same_altruistic_move(self):
+        """p=0: identical setup — self-gain is negative → car stays put."""
+        sim = self._make_sim(politeness=0.0)
+
+        car          = make_car(car_id=0, lane=1, position=500.0, velocity=20.0,
+                                desired_velocity=30.0, length=5.0)
+        car.lane_change_timer = 0.0
+        old_follower = make_car(car_id=1, lane=1, position=470.0, velocity=20.0,
+                                desired_velocity=30.0, length=5.0)
+        lane0_leader = make_car(car_id=2, lane=0, position=560.0, velocity=25.0, length=5.0)
+        for c in [car, old_follower, lane0_leader]:
+            sim.cars.append(c)
+            sim.road.add_car(c)
+
+        sim._try_lane_change(car)
+        assert car.lane == 1   # self-gain < threshold → stays
+
+
 # ── Full-step integration ─────────────────────────────────────────────────────
 
 class TestStep:
@@ -526,3 +643,246 @@ class TestOfframpController:
         for _ in range(50):
             sim._update_ramp_control(dt=1.0)
         assert self._onramp(sim).rate <= sim._onramp_rate_max
+
+
+# ── Destination mode ──────────────────────────────────────────────────────────
+
+class TestDestinationMode:
+    """Destination-based exits: cars complete a fixed number of laps before exiting."""
+
+    def _dest_cfg(self, min_loops=5, loops_lambda=0.0, exit_lookahead_m=300.0):
+        """Config with destination mode enabled and Poisson lambda=0 for determinism."""
+        cfg = SimConfig()
+        cfg.destination.enabled = True
+        cfg.destination.min_loops = min_loops
+        cfg.destination.loops_lambda = loops_lambda
+        cfg.destination.exit_lookahead_m = exit_lookahead_m
+        return cfg
+
+    def _offramp(self, sim):
+        return next(r for r in sim.road.ramps if not r.is_onramp)
+
+    def _onramp(self, sim):
+        return next(r for r in sim.road.ramps if r.is_onramp)
+
+    # ── destination_laps assignment ──────────────────────────────────────────
+
+    def test_destination_laps_assigned_at_spawn(self):
+        """Cars spawned in destination mode have destination_laps >= min_loops."""
+        cfg = self._dest_cfg(min_loops=5, loops_lambda=3.0)
+        random.seed(42)
+        sim = make_sim(num_cars=20, cfg=cfg, seed=42)
+        assert all(c.destination_laps >= 5 for c in sim.cars)
+
+    def test_destination_laps_zero_in_classic_mode(self):
+        """Cars spawned in classic mode have destination_laps == 0."""
+        random.seed(0)
+        sim = make_sim(num_cars=10, seed=0)
+        assert all(c.destination_laps == 0 for c in sim.cars)
+
+    # ── lap detection ────────────────────────────────────────────────────────
+
+    def test_lap_detected_on_position_wrap(self):
+        """Car crossing position 0 increments laps_completed."""
+        cfg = self._dest_cfg(min_loops=5)
+        sim = make_sim(num_cars=0, cfg=cfg)
+        # Place car near end of road so one step causes a wraparound
+        car = make_car(car_id=0, lane=0, position=999.5, velocity=25.0)
+        car.destination_laps = 5
+        sim.cars.append(car)
+        sim.road.add_car(car)
+        sim.step(dt=0.1)   # 25 m/s × 0.1 s = 2.5 m → wraps to ~2.0 m
+        assert car.laps_completed == 1
+
+    def test_no_lap_without_wrap(self):
+        """Car that doesn't wrap does not increment laps_completed."""
+        cfg = self._dest_cfg(min_loops=5)
+        sim = make_sim(num_cars=0, cfg=cfg)
+        car = make_car(car_id=0, lane=0, position=100.0, velocity=25.0)
+        car.destination_laps = 5
+        sim.cars.append(car)
+        sim.road.add_car(car)
+        sim.step(dt=0.1)
+        assert car.laps_completed == 0
+
+    def test_passed_ramps_cleared_on_lap(self):
+        """After a lap completes, _passed_ramps is cleared for re-evaluation."""
+        cfg = self._dest_cfg(min_loops=5)
+        sim = make_sim(num_cars=0, cfg=cfg)
+        car = make_car(car_id=0, lane=0, position=999.5, velocity=25.0)
+        car.destination_laps = 5
+        car._passed_ramps.add(800.0)   # simulate having passed the off-ramp
+        sim.cars.append(car)
+        sim.road.add_car(car)
+        sim.step(dt=0.1)
+        assert car.laps_completed == 1
+        assert len(car._passed_ramps) == 0
+
+    def test_laps_not_counted_in_classic_mode(self):
+        """In classic mode, laps_completed stays 0 even after wrapping."""
+        sim = make_sim(num_cars=0)   # destination disabled by default
+        car = make_car(car_id=0, lane=0, position=999.5, velocity=25.0)
+        # destination_laps=0 → lap detection skipped
+        sim.cars.append(car)
+        sim.road.add_car(car)
+        sim.step(dt=0.1)
+        assert car.laps_completed == 0
+
+    # ── off-ramp exit logic ──────────────────────────────────────────────────
+
+    def test_no_exit_before_destination(self):
+        """Car with laps_completed < destination_laps is never removed at off-ramp."""
+        cfg = self._dest_cfg(min_loops=5)
+        sim = make_sim(num_cars=0, cfg=cfg)
+        ramp = self._offramp(sim)
+        car = make_car(lane=2, position=ramp.position)
+        car.destination_laps = 5
+        car.laps_completed = 3   # hasn't finished yet
+        assert sim._process_offramp(car, ramp) is False
+
+    def test_exit_when_destination_reached(self):
+        """Car with laps_completed == destination_laps exits at off-ramp."""
+        cfg = self._dest_cfg(min_loops=5)
+        sim = make_sim(num_cars=0, cfg=cfg)
+        ramp = self._offramp(sim)
+        car = make_car(lane=2, position=ramp.position)
+        car.destination_laps = 5
+        car.laps_completed = 5   # destination reached
+        assert sim._process_offramp(car, ramp) is True
+
+    def test_exit_when_over_destination(self):
+        """Car that somehow has laps_completed > destination_laps also exits."""
+        cfg = self._dest_cfg(min_loops=5)
+        sim = make_sim(num_cars=0, cfg=cfg)
+        ramp = self._offramp(sim)
+        car = make_car(lane=2, position=ramp.position)
+        car.destination_laps = 5
+        car.laps_completed = 7
+        assert sim._process_offramp(car, ramp) is True
+
+    def test_no_double_exit_same_lap(self):
+        """Car already evaluated at off-ramp this lap does not exit again."""
+        cfg = self._dest_cfg(min_loops=5)
+        sim = make_sim(num_cars=0, cfg=cfg)
+        ramp = self._offramp(sim)
+        car = make_car(lane=2, position=ramp.position)
+        car.destination_laps = 5
+        car.laps_completed = 5
+        car._passed_ramps.add(ramp.position)   # already processed this lap
+        assert sim._process_offramp(car, ramp) is False
+
+    def test_wrong_lane_never_exits(self):
+        """Destination mode still requires car to be in rightmost lane."""
+        cfg = self._dest_cfg(min_loops=1)
+        sim = make_sim(num_cars=0, cfg=cfg)
+        ramp = self._offramp(sim)
+        car = make_car(lane=0, position=ramp.position)   # wrong lane
+        car.destination_laps = 1
+        car.laps_completed = 1
+        assert sim._process_offramp(car, ramp) is False
+
+    # ── exiting flag ─────────────────────────────────────────────────────────
+
+    def test_exiting_flag_set_near_offramp_on_final_lap(self):
+        """Car on final lap within lookahead distance gets exiting=True."""
+        cfg = self._dest_cfg(min_loops=5, exit_lookahead_m=300.0)
+        sim = make_sim(num_cars=0, cfg=cfg)
+        # off-ramp at 800 m; car at 510 m → dist = 290 m ≤ 300 m lookahead
+        car = make_car(car_id=0, lane=0, position=510.0, velocity=25.0)
+        car.destination_laps = 5
+        car.laps_completed = 5
+        sim.cars.append(car)
+        sim.road.add_car(car)
+        sim._update_exiting_flags()
+        assert car.exiting is True
+
+    def test_exiting_flag_not_set_too_far_from_offramp(self):
+        """Car on final lap but beyond lookahead distance does not get exiting=True."""
+        cfg = self._dest_cfg(min_loops=5, exit_lookahead_m=300.0)
+        sim = make_sim(num_cars=0, cfg=cfg)
+        # off-ramp at 800 m; car at 400 m → dist = 400 m > 300 m lookahead
+        car = make_car(car_id=0, lane=0, position=400.0, velocity=25.0)
+        car.destination_laps = 5
+        car.laps_completed = 5
+        sim.cars.append(car)
+        sim.road.add_car(car)
+        sim._update_exiting_flags()
+        assert car.exiting is False
+
+    def test_exiting_flag_not_set_before_final_lap(self):
+        """Car that hasn't finished enough laps does not get exiting=True."""
+        cfg = self._dest_cfg(min_loops=5, exit_lookahead_m=300.0)
+        sim = make_sim(num_cars=0, cfg=cfg)
+        car = make_car(car_id=0, lane=0, position=510.0, velocity=25.0)
+        car.destination_laps = 5
+        car.laps_completed = 3   # not done yet
+        sim.cars.append(car)
+        sim.road.add_car(car)
+        sim._update_exiting_flags()
+        assert car.exiting is False
+
+    def test_exiting_car_does_not_move_left(self):
+        """Car with exiting=True skips left-lane (overtaking) candidates."""
+        cfg = SimConfig()
+        cfg.lane_change.incentive_m = 8.0
+        cfg.lane_change.safety_gap_m = 6.0
+        cfg.lane_change.keep_right_gap_m = 0.0  # disable keep-right noise
+        sim = make_sim(num_cars=0, cfg=cfg)
+
+        # Car already in the rightmost lane (2); no right candidate available.
+        # Lane 1 is empty — would normally trigger an overtake into lane 1 from
+        # the rightmost lane, but that direction is "left" here... Actually,
+        # moving from lane 2 → lane 1 is leftward (smaller index = fast lane).
+        # A slow leader ahead in lane 2 makes gap in lane 1 much better.
+        slow_leader = make_car(car_id=1, lane=2, position=600.0 + 25.0, velocity=5.0, length=5.0)
+        car = make_car(car_id=0, lane=2, position=600.0, velocity=25.0)
+        car.lane_change_timer = 0.0
+        car.exiting = True
+        sim.cars.extend([car, slow_leader])
+        sim.road.add_car(car)
+        sim.road.add_car(slow_leader)
+
+        sim._try_lane_change(car)
+        assert car.lane == 2   # must NOT have moved left (lane 1)
+
+    def test_exiting_car_moves_right_immediately(self):
+        """Car with exiting=True bypasses keep_right_gap threshold and moves right."""
+        cfg = SimConfig()
+        cfg.lane_change.keep_right_gap_m = 200.0  # very large — would block keep-right normally
+        cfg.lane_change.safety_gap_m = 6.0
+        sim = make_sim(num_cars=0, cfg=cfg)
+
+        # Car in lane 1 with exiting=True; lane 2 empty and safe
+        car = make_car(car_id=0, lane=1, position=600.0, velocity=25.0)
+        car.lane_change_timer = 0.0
+        car.exiting = True
+        sim.cars.append(car)
+        sim.road.add_car(car)
+
+        sim._try_lane_change(car)
+        assert car.lane == 2   # moved right despite gap < keep_right_gap_m
+
+    # ── ramp controller interaction ──────────────────────────────────────────
+
+    def test_destination_mode_skips_offramp_prob_control(self):
+        """In destination mode, offramp_prob is not adjusted by the controller."""
+        cfg = self._dest_cfg(min_loops=5)
+        cfg.ramp.target_cars = 5
+        cfg.ramp.offramp_control_gain = 0.1
+        cfg.ramp.offramp_prob = 0.3
+        sim = make_sim(num_cars=10, cfg=cfg)  # over target → controller fires
+        initial_offramp = self._offramp(sim).rate
+        for _ in range(10):
+            sim._update_ramp_control(dt=1.0)
+        assert self._offramp(sim).rate == pytest.approx(initial_offramp)
+
+    def test_destination_mode_still_controls_onramp(self):
+        """In destination mode, onramp_rate is still adjusted by the controller."""
+        cfg = self._dest_cfg(min_loops=5)
+        cfg.ramp.target_cars = 5
+        cfg.ramp.onramp_control_gain = 0.1
+        sim = make_sim(num_cars=10, cfg=cfg)  # over target → reduce onramp
+        initial_onramp = self._onramp(sim).rate
+        for _ in range(10):
+            sim._update_ramp_control(dt=1.0)
+        assert self._onramp(sim).rate < initial_onramp

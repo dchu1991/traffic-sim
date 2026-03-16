@@ -93,7 +93,9 @@ class Visualizer:
         # Extra vertical space for on-ramp queue lane (if on-ramp is active)
         self.has_onramp = sim.cfg.ramp.onramp_rate > 0
         ramp_extra = LANE_HEIGHT if self.has_onramp else 0
-        hud_lines = 5 if sim.cfg.ramp.target_cars > 0 else 4
+        hud_extra_lines = (1 if sim.cfg.ramp.target_cars > 0 else 0) + \
+                          (1 if sim.cfg.destination.enabled else 0)
+        hud_lines = 4 + hud_extra_lines
         hud_h = HUD_PADDING + hud_lines * HUD_LINE_H + 6 + HUD_BAR_H + HUD_MARGIN
         self.H = MARGIN + road_h + ramp_extra + hud_h
 
@@ -271,11 +273,21 @@ class Visualizer:
             f"Limits (L\u2192R):  {limits_str}",
             "Controls:  [SPACE] pause   [↑/↓] sim speed   [Q] quit",
         ]
+        if self.sim.cfg.destination.enabled:
+            dc = self.sim.cfg.destination
+            avg_laps = (
+                sum(c.laps_completed for c in self.sim.cars) / len(self.sim.cars)
+                if self.sim.cars else 0.0
+            )
+            lines.insert(2,
+                f"Destination mode  |  min_loops={dc.min_loops}  λ={dc.loops_lambda:.1f}"
+                f"  |  avg laps: {avg_laps:.1f}"
+            )
         if self.sim.cfg.ramp.target_cars > 0:
             onramp  = next((r for r in self.sim.road.ramps if r.is_onramp),      None)
             offramp = next((r for r in self.sim.road.ramps if not r.is_onramp),  None)
             parts = [f"Target: {self.sim.cfg.ramp.target_cars} cars"]
-            if offramp:
+            if offramp and not self.sim.cfg.destination.enabled:
                 parts.append(f"p_exit: {offramp.rate:.3f}")
             if onramp:
                 parts.append(f"inflow: {onramp.rate:.2f}/s")
