@@ -94,3 +94,20 @@ class TestFromToml:
     def test_missing_file_raises(self):
         with pytest.raises(FileNotFoundError):
             SimConfig.from_toml("/nonexistent/path/config.toml")
+
+
+class TestDestinationToml:
+    def _write_toml(self, content: str) -> str:
+        f = tempfile.NamedTemporaryFile(suffix=".toml", mode="w", delete=False)
+        f.write(content)
+        f.close()
+        return f.name
+
+    def test_destination_section_overrides(self):
+        path = self._write_toml(
+            "[destination]\nenabled = true\nmin_loops = 2\nexit_lookahead_m = 150.0\n"
+        )
+        cfg = SimConfig.from_toml(path)
+        assert cfg.destination.enabled == True
+        assert cfg.destination.min_loops == 2
+        assert cfg.destination.exit_lookahead_m == pytest.approx(150.0)

@@ -16,10 +16,12 @@ class Recorder:
     Samples simulation state at regular intervals and writes Parquet files on save().
 
     Aggregate file columns:
-        time_s, car_count, avg_speed_kmh, density_veh_per_km, flow_veh_per_h
+        time_s, car_count, avg_speed_kmh, density_veh_per_km, flow_veh_per_h,
+        onramp_rate, offramp_prob
 
     Per-car trajectory file columns (--record-cars):
-        time_s, car_id, lane, position_m, speed_kmh, accel_ms2
+        time_s, car_id, lane, position_m, speed_kmh, accel_ms2,
+        laps_completed, destination_laps
     """
 
     def __init__(

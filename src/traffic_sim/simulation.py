@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import colorsys
 import random
+import warnings
 
 import numpy as np
 
@@ -107,6 +108,12 @@ class Simulation:
         if self.cfg.destination.enabled:
             dc = self.cfg.destination
             car.destination_laps = dc.min_loops + _poisson_sample(dc.loops_lambda)
+            if car.destination_laps == 0:
+                warnings.warn(
+                    "Destination mode: car spawned with destination_laps=0 — car will never exit."
+                    " Set min_loops >= 1.",
+                    stacklevel=2,
+                )
         return car
 
     def _spawn_initial_cars(self, num_cars: int, truck_fraction: float) -> None:
